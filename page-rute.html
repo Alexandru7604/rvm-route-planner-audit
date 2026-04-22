@@ -204,11 +204,17 @@ function scoreStopInsertion(vehicle, usedD60, usedRolls, usedKg, lastPos, order)
   if (!c) return 9999;
   const store     = getStore(order.cod);
   const allowed   = parseAllowedPrio(store?.prioritate_auto);
-  const prioRank  = allowed ? Math.max(0, allowed.indexOf(vehicle.prioritate)) : 0;
+  // P1.1 — vehicul neautorizat primește penalizare dură, nu rang 0
+  const prioRank  = allowed
+    ? (allowed.includes(vehicle.prioritate)
+        ? allowed.indexOf(vehicle.prioritate)
+        : allowed.length + 5)
+    : 0;
   const dist      = roadKm(lastPos || DEPOT_COORDS, c);
-  const remD60    = vehicle.capacitate_d60 - usedD60;
-  const fillPenalty = remD60 > 0
-    ? Math.max(0, 1 - (order._d60||order.d60||0) / remD60) * 3 : 5;
+  // P3.13 — fillPenalty față de capacitatea totală, nu față de spațiul rămas
+  const orderD60    = order._d60 || order.d60 || 0;
+  const fillBonus   = (orderD60 / vehicle.capacitate_d60) * 4;
+  const fillPenalty = Math.max(0, 3 - fillBonus);
   return dist + prioRank * 12 + fillPenalty;
 }
 
@@ -243,9 +249,18 @@ function buildTripsForVehicle(vehicle, vehicleOrders, debugLog) {
       pos = coords || pos;
     }
 
-    // Fallback: forțează prima comandă rămasă (înregistrează în debug)
+    // P2.7 — fallback alege comanda cu cea mai mică depășire totală, nu rem[0]
     if (stops.length===0 && rem.length>0) {
-      const o = rem.shift();
+      let bestFallbackIdx=0, bestOverflow=Infinity;
+      for (let fi=0; fi<rem.length; fi++) {
+        const fo=rem[fi];
+        const ov=
+          Math.max(0,(fo._d60  ||fo.d60  ||0)+d60  -capD60)  *100+
+          Math.max(0,(fo._rolls||fo.rolls||0)+rolls -capRolls)*50 +
+          Math.max(0,(fo._kg   ||fo.kg   ||0)+kg   -capKg)   *0.01;
+        if(ov<bestOverflow){bestOverflow=ov;bestFallbackIdx=fi;}
+      }
+      const o=rem.splice(bestFallbackIdx,1)[0];
       d60   += (o._d60  ||o.d60  ||0);
       rolls += (o._rolls||o.rolls||0);
       kg    += (o._kg   ||o.kg   ||0);
@@ -253,6 +268,9 @@ function buildTripsForVehicle(vehicle, vehicleOrders, debugLog) {
       if (debugLog) debugLog.push(explainAssignmentDecision(
         o, vehicle, 9999, 'FORȚAT — nu încape în nicio cursă disponibilă'));
     }
+
+    // P3.12 — 2-opt: îmbunătățește ordinea stopurilor după construcția greedy
+    if (stops.length >= 3) twoOptImprove(stops);
 
     if (stops.length > 0) {
       const overloaded = d60>capD60 || (capRolls>0 && rolls>capRolls) || kg>capKg;
@@ -265,10 +283,13 @@ function buildTripsForVehicle(vehicle, vehicleOrders, debugLog) {
 
 // 8. Distribuie comenzile pe flotă (atribuire principală)
 function assignOrdersAcrossFleet(normalizedOrders, vehicles, debugLog) {
+  // P3.11 — refVehicle = cel mai mic vehicul din combinația activă (nu fictiv default)
+  const refVehicle = vehicles.reduce(
+    (min,v) => v.capacitate_d60 < min.capacitate_d60 ? v : min, vehicles[0]);
   // Sortare: prioritate magazin ASC, apoi load-index DESC (cele mai grele prime)
   const sorted = [...normalizedOrders].sort((a,b) => {
     if (a.prioritate !== b.prioritate) return a.prioritate - b.prioritate;
-    return calculateLoadIndex(b) - calculateLoadIndex(a);
+    return calculateLoadIndex(b, refVehicle) - calculateLoadIndex(a, refVehicle);
   });
 
   const state = vehicles.map(v => ({ vehicle:v, orders:[], totalLoad:0 }));
@@ -278,15 +299,24 @@ function assignOrdersAcrossFleet(normalizedOrders, vehicles, debugLog) {
     const allowed = parseAllowedPrio(store?.prioritate_auto);
 
     // Candidați: vehicule permise pentru magazin
+    // P2.8 — urmărim explicit fallback-ul neautorizat
+    let forcedFallback = false;
     let candidates = state.filter(s =>
       allowed === null || allowed.includes(s.vehicle.prioritate));
-    if (candidates.length === 0) candidates = [...state]; // fallback complet
+    if (candidates.length === 0) { candidates = [...state]; forcedFallback = true; }
 
-    // Preferă vehiculele care pot fizic transporta întreaga comandă
-    const capable = candidates.filter(s =>
-      (o._d60  ||o.d60  ||0) <= s.vehicle.capacitate_d60 &&
-      (o._rolls||o.rolls||0) <= (s.vehicle.capacitate_rolls||0) &&
-      (o._kg   ||o.kg   ||0) <= s.vehicle.util_kg);
+    // P1.2 — capable verifică capacitatea rămasă reală, nu capacitatea totală
+    const capable = candidates.filter(s => {
+      const usedD60   = s.orders.reduce((a,x)=>a+(x._d60  ||x.d60  ||0),0);
+      const usedRolls = s.orders.reduce((a,x)=>a+(x._rolls||x.rolls||0),0);
+      const usedKg    = s.orders.reduce((a,x)=>a+(x._kg   ||x.kg   ||0),0);
+      return (
+        usedD60   + (o._d60  ||o.d60  ||0) <= s.vehicle.capacitate_d60 &&
+        (s.vehicle.capacitate_rolls===0 ||
+         usedRolls + (o._rolls||o.rolls||0) <= s.vehicle.capacitate_rolls) &&
+        usedKg    + (o._kg   ||o.kg   ||0) <= s.vehicle.util_kg
+      );
+    });
     const pool = capable.length > 0 ? capable : candidates;
 
     // Scor atribuire: echilibru sarcină + rang prioritate × cost mediu
@@ -305,18 +335,58 @@ function assignOrdersAcrossFleet(normalizedOrders, vehicles, debugLog) {
 
     if (debugLog) debugLog.push(explainAssignmentDecision(
       o, w.vehicle, rank,
-      `rang=${rank} · load=${r2(w.totalLoad)} · ${capable.length>0?'capabil':'FORȚAT'}`));
+      forcedFallback
+        ? 'FORȚAT — niciun vehicul autorizat disponibil'
+        : `rang=${rank} · load=${r2(w.totalLoad)} · ${capable.length>0?'capabil':'FORȚAT — depășire capacitate'}`));
   }
   return state;
 }
 
+// Helper P2.5 — estimează ora de finalizare a unui assignment fără a construi trips
+function estimateFinishMin(assignment) {
+  let cur = START_MIN + LOAD_MIN;
+  let pos = DEPOT_COORDS;
+  for (const o of assignment.orders) {
+    const c = getCoords(o.cod) || DEPOT_COORDS;
+    cur += travelMin(roadKm(pos, c)) + UNLOAD_MIN;
+    pos  = c;
+  }
+  cur += travelMin(roadKm(pos, DEPOT_COORDS));
+  return cur;
+}
+
+// Helper P3.12 — îmbunătățire 2-opt pe stopurile unei curse (minimizează km)
+function twoOptImprove(stops) {
+  if (stops.length < 3) return;
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < stops.length - 1; i++) {
+      for (let j = i + 2; j < stops.length; j++) {
+        const posI     = i > 0 ? (stops[i-1].coords||DEPOT_COORDS) : DEPOT_COORDS;
+        const posINext = stops[i].coords   || DEPOT_COORDS;
+        const posJ     = stops[j].coords   || DEPOT_COORDS;
+        const posJNext = j+1 < stops.length ? (stops[j+1].coords||DEPOT_COORDS) : DEPOT_COORDS;
+        const before   = roadKm(posI, posINext) + roadKm(posJ, posJNext);
+        const after    = roadKm(posI, posJ)     + roadKm(posINext, posJNext);
+        if (after < before - 0.1) {
+          stops.splice(i, j-i+1, ...stops.slice(i, j+1).reverse());
+          improved = true;
+        }
+      }
+    }
+  }
+}
+
 // 9. Rebalansare — mută comenzi de pe vehiculele supraîncărcate pe cele ușoare
 function rebalanceTrips(assignments, debugLog) {
-  for (let pass=0; pass<5; pass++) {
-    const byLoad = [...assignments].sort((a,b)=>b.orders.length-a.orders.length);
+  // P2.5 — sortare după ora estimată de final (nu după nr. comenzi)
+  for (let pass=0; pass<8; pass++) {
+    const byLoad = [...assignments].sort((a,b)=>estimateFinishMin(b)-estimateFinishMin(a));
     const heavy  = byLoad[0];
     const light  = byLoad[byLoad.length-1];
-    if (heavy===light || heavy.orders.length - light.orders.length < 2) break;
+    // Oprire dacă diferența de timp între cel mai ocupat și cel mai liber < 30 min
+    if (heavy===light || estimateFinishMin(heavy) - estimateFinishMin(light) < 30) break;
 
     let moved = false;
     for (let k=heavy.orders.length-1; k>=0; k--) {
@@ -324,9 +394,14 @@ function rebalanceTrips(assignments, debugLog) {
       const store   = getStore(o.cod);
       const allowed = parseAllowedPrio(store?.prioritate_auto);
       if (allowed && !allowed.includes(light.vehicle.prioritate)) continue;
-      if ((o._d60  ||o.d60  ||0) > light.vehicle.capacitate_d60)          continue;
-      if ((o._rolls||o.rolls||0) > (light.vehicle.capacitate_rolls||0))    continue;
-      if ((o._kg   ||o.kg   ||0) > light.vehicle.util_kg)                  continue;
+      // P1.3 — verificare capacitate cumulată, nu individuală
+      const lUsedD60   = light.orders.reduce((a,x)=>a+(x._d60  ||x.d60  ||0),0);
+      const lUsedRolls = light.orders.reduce((a,x)=>a+(x._rolls||x.rolls||0),0);
+      const lUsedKg    = light.orders.reduce((a,x)=>a+(x._kg   ||x.kg   ||0),0);
+      if (lUsedD60   + (o._d60  ||o.d60  ||0) > light.vehicle.capacitate_d60)              continue;
+      if (light.vehicle.capacitate_rolls > 0 &&
+          lUsedRolls + (o._rolls||o.rolls||0) > light.vehicle.capacitate_rolls)             continue;
+      if (lUsedKg    + (o._kg   ||o.kg   ||0) > light.vehicle.util_kg)                     continue;
 
       heavy.orders.splice(k, 1);
       light.orders.push(o);
@@ -385,13 +460,39 @@ function generateCombinations(fleet, k) {
 }
 
 // Scor plan (mai mic = mai bun)
-// Penalizări: depășiri capacitate > întârzieri > vehicule goale > km total
+// Penalizări: depășiri capacitate > restricții magazine > întârzieri > vehicule goale > spread temporal > km
 function scorePlan(routes) {
-  const overloaded = routes.reduce((s,r)=>s+r.trips.filter(t=>t.overloaded).length, 0);
-  const late       = routes.filter(r=>r.finishMin>840).length;
-  const empty      = routes.filter(r=>r.orderCount===0).length;
-  const km         = routes.reduce((s,r)=>s+r.totalKm, 0);
-  return overloaded*100000 + late*10000 + empty*5000 + km;
+  // P3.9 — penalizare proporțională cu magnitudinea depășirii (nu doar count)
+  let overloadScore = 0;
+  for (const r of routes) {
+    for (const t of r.trips) {
+      if (t.overloaded) {
+        const exD60   = Math.max(0, t.usedD60   - t.capD60);
+        const exRolls = Math.max(0, t.usedRolls - (t.capRolls||0));
+        const exKg    = Math.max(0, t.usedKg    - t.capKg);
+        overloadScore += 100000 + exD60*500 + exRolls*300 + Math.round(exKg*0.1);
+      }
+    }
+  }
+  // P3.10 — penalizare pentru încălcări restricții magazin (vehicul neautorizat la stop)
+  let violations = 0;
+  for (const r of routes) {
+    for (const trip of r.trips) {
+      for (const stop of trip.stops) {
+        const allowed = parseAllowedPrio(getStore(stop.order.cod)?.prioritate_auto);
+        if (allowed && !allowed.includes(r.vehicle.prioritate)) violations++;
+      }
+    }
+  }
+  const late         = routes.filter(r=>r.finishMin>840).length;
+  const empty        = routes.filter(r=>r.orderCount===0).length;
+  const km           = routes.reduce((s,r)=>s+r.totalKm, 0);
+  // P2.6 — penalizare spread temporal între primul și ultimul șofer
+  const finishTimes  = routes.map(r=>r.finishMin);
+  const spread       = routes.length > 1
+    ? Math.max(...finishTimes) - Math.min(...finishTimes) : 0;
+  const spreadPenalty = Math.max(0, spread - 60); // fiecare minut peste 60 min diferență
+  return overloadScore + violations*8000 + late*10000 + empty*5000 + spreadPenalty*10 + km;
 }
 
 // ─────────────────────────────────────────────
@@ -489,6 +590,18 @@ function generateRoutes(rawOrders, nrSoferi) {
       bestLog    = log;
       bestCombo  = combo;
     }
+  }
+
+  // P1.4 — guard: nicio combinație validă (flotă goală sau nrSoferi=0)
+  if (!bestRoutes) {
+    return {
+      routes: [],
+      debugLog: [{
+        magazin:'── EROARE ──', vehicul:'—', d60:null, rolls:null, kg:null, score:null,
+        motiv:'Nicio combinație validă — verificați flota și numărul de șoferi activi',
+      }],
+      summary:{ totalKm:0, totalTrips:0, totalOrders:0, lateVehicles:0, overloadedTrips:0 },
+    };
   }
 
   // Pasul 4: Construiește log-ul final cu header de selecție
