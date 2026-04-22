@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RVM Logistics – Comenzi</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS pentru parsare XLSX -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    body { margin: 0; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #F3F4F6; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+    input[type=number]::-webkit-inner-spin-button { opacity: 1; }
+  </style>
+</head>
+<body class="bg-gray-100">
+<div id="root"></div>
+
+<script type="text/babel">
+
+// ============================================================
+// DATE DEMO — comenzile din 18 martie 2026 (mail TMS Carrefour)
+// ============================================================
+const DEMO_ORDERS = [
+  { id:1,  store_code:"000083", store_name:"S PLOIEȘTI 2",            ambient_pal:5,    ambient_kg:2324, fresh_pal:3,    fresh_kg:876,  apls_pal:5,    apls_kg:1156, paleti:13,    kg:4356,  priority:3 },
+  { id:2,  store_code:"000097", store_name:"S PLOIEȘTI 3",            ambient_pal:5,    ambient_kg:2333, fresh_pal:4,    fresh_kg:1228, apls_pal:4,    apls_kg:913,  paleti:13,    kg:4474,  priority:3 },
+  { id:3,  store_code:"000128", store_name:"S PLOIEȘTI 4",            ambient_pal:4,    ambient_kg:2015, fresh_pal:2,    fresh_kg:336,  apls_pal:2,    apls_kg:382,  paleti:8,     kg:2733,  priority:3 },
+  { id:4,  store_code:"000161", store_name:"S PLOIEȘTI 6",            ambient_pal:5,    ambient_kg:2275, fresh_pal:3,    fresh_kg:484,  apls_pal:3,    apls_kg:510,  paleti:11,    kg:3269,  priority:3 },
+  { id:5,  store_code:"000202", store_name:"S BAICOI",                ambient_pal:4.5,  ambient_kg:2422, fresh_pal:1,    fresh_kg:366,  apls_pal:3,    apls_kg:734,  paleti:8.5,   kg:3522,  priority:2 },
+  { id:6,  store_code:"000214", store_name:"S BOLDEȘTI SCĂIENI",      ambient_pal:3.5,  ambient_kg:2064, fresh_pal:1,    fresh_kg:264,  apls_pal:3,    apls_kg:631,  paleti:7.5,   kg:2959,  priority:2 },
+  { id:7,  store_code:"000230", store_name:"S VALEA CĂLUGĂREASCA",    ambient_pal:4,    ambient_kg:1997, fresh_pal:0.5,  fresh_kg:163,  apls_pal:2,    apls_kg:386,  paleti:6.5,   kg:2546,  priority:2 },
+  { id:8,  store_code:"000374", store_name:"EXPRESS PLOIEȘTI DOJA",   ambient_pal:0,    ambient_kg:0,    fresh_pal:1,    fresh_kg:122,  apls_pal:2,    apls_kg:178,  paleti:3,     kg:300,   priority:3 },
+  { id:9,  store_code:"000832", store_name:"C PLOIEȘTI (BILLA VEST)", ambient_pal:7,    ambient_kg:3220, fresh_pal:5,    fresh_kg:1328, apls_pal:5,    apls_kg:1245, paleti:17,    kg:5793,  priority:3 },
+  { id:10, store_code:"000886", store_name:"IC SINAIA",               ambient_pal:4.67, ambient_kg:1773, fresh_pal:2.67, fresh_kg:762,  apls_pal:3.34, apls_kg:710,  paleti:10.68, kg:3245,  priority:1 },
+];
+
+const STORE_PRIORITY = {
+  "000886":1, "000202":2, "000214":2, "000230":2,
+  "000832":3, "000083":3, "000097":3, "000128":3,
+  "000161":3, "000374":3, "000060":4,
+};
+
+const PRIORITY_LABEL = { 1:"Urgent", 2:"Mare", 3:"Mediu", 4:"Mic", 5:"F. mic" };
+const PRIORITY_COLOR = {
+  1:"bg-red-100 text-red-700 border-red-200",
+  2:"bg-orange-100 text-orange-700 border-orange-200",
+  3:"bg-blue-100 text-blue-700 border-blue-200",
+  4:"bg-gray-100 text-gray-600 border-gray-200",
+  5:"bg-gray-100 text-gray-400 border-gray-200",
+};
+
+const NAV_ITEMS = [
+  { label:"Planificare", icon:"📋", href:"page-planificare.html" },
+  { label:"Comenzi",     icon:"📦", href:"page-comenzi.html",     active:true },
+  { label:"Rute",        icon:"🗺️", href:"page-rute.html"        },
+  { label:"Auto",        icon:"🚚", href:"page-autovehicule.html" },
+  { label:"Magazine",    icon:"🏪", href:"page-magazine.html"    },
+  { label:"Utilizatori", icon:"👥", href:"page-utilizatori.html" },
+  { label:"Huburi",      icon:"🏭", href:"page-huburi.html"      },
+];
+
+// ============================================================
+// PARSE UTILITIES
+// ============================================================
+
+// Parser inteligent: distinge separatorul de mii "." de cel zecimal
+function parseNum(val) {
+  const str = String(val ?? '').trim();
+  if (!str || str === '-') return 0;
+  // 2.113 sau 6.663 → separator de mii → 2113, 6663
+  if (/^\d{1,3}(\.\d{3})+$/.test(str)) {
+    return parseInt(str.replace(/\./g, ''), 10);
+  }
+  // 4,67 sau 10.68 → valoare zecimală
+  return parseFloat(str.replace(',', '.')) || 0;
+}
+
+function parsePAL(val) { return parseNum(val); }
+
+function parseKG(val) {
+  // KG sunt întotdeauna întregi; "." = separator de mii
+  return parseInt(String(val ?? '').trim().replace(/\./g, '').replace(',', ''), 10) || 0;
+}
+
+function getPriority(code) {
+  return STORE_PRIORITY[String(code ?? '').trim()] || 3;
+}
+
+// Parser principal: TSV (tab) sau CSV (virgulă) copiat din email / Excel
+function parseTable(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const results = [];
+  let idCtr = 1;
+
+  for (const line of lines) {
+    // Detectează separatorul
+    let cells = line.split('\t');
+    if (cells.length < 4) cells = line.split(',');
+    if (cells.length < 4) continue;
+
+    // Curăță ghilimele și spații
+    cells = cells.map(c => c.trim().replace(/^["'`]|["'`]$/g, ''));
+
+    // Detectează rândul de date: prima celulă conține "HUB"
+    //   sau a doua celulă arată ca un cod de magazin (000xxx)
+    const isHubRow   = /hub/i.test(cells[0]);
+    const codeInCol1 = /^\d{3,6}$/.test(cells[1]?.replace(/\s/g,''));
+    const codeInCol0 = /^\d{3,6}$/.test(cells[0]?.replace(/\s/g,''));
+
+    if (!isHubRow && !codeInCol1 && !codeInCol0) continue;
+
+    let storeCode, storeName, dataStart;
+
+    if (isHubRow && cells.length >= 3) {
+      storeCode = cells[1]; storeName = cells[2]; dataStart = 3;
+    } else if (codeInCol1) {
+      storeCode = cells[1]; storeName = cells[2] || cells[1]; dataStart = 3;
+    } else if (codeInCol0) {
+      storeCode = cells[0]; storeName = cells[1] || cells[0]; dataStart = 2;
+    } else continue;
+
+    // Extrage valorile numerice din rest
+    const raw  = cells.slice(dataStart);
+    const nums = raw.filter(c => {
+      const s = c.replace(/[.,\s]/g, '');
+      return s !== '' && /^\d+$/.test(s);
+    });
+
+    if (nums.length < 2) continue;
+
+    let ambPAL=0, ambKG=0, freshPAL=0, freshKG=0, aplsPAL=0, aplsKG=0;
+
+    if (nums.length >= 6) {
+      // Format complet sau parțial Carrefour: ultimele 6 = TOTAL: AmbPAL, AmbKG, FreshPAL, FreshKG, AplsPAL, AplsKG
+      const t = nums.slice(-6);
+      ambPAL   = parsePAL(t[0]); ambKG   = parseKG(t[1]);
+      freshPAL = parsePAL(t[2]); freshKG = parseKG(t[3]);
+      aplsPAL  = parsePAL(t[4]); aplsKG  = parseKG(t[5]);
+    } else {
+      // Format simplu: ultimele 2 valori = PAL total, KG total
+      ambPAL = parsePAL(nums[nums.length - 2]);
+      ambKG  = parseKG(nums[nums.length - 1]);
+    }
+
+    const totalPAL = ambPAL + freshPAL + aplsPAL;
+    const totalKG  = ambKG  + freshKG  + aplsKG;
+
+    if (totalPAL === 0 && totalKG === 0) continue;
+
+    results.push({
+      id:          idCtr++,
+      store_code:  String(storeCode).trim().padStart(6, '0'),
+      store_name:  String(storeName).trim().toUpperCase(),
+      ambient_pal: Math.round(ambPAL   * 100) / 100, ambient_kg:  ambKG,
+      fresh_pal:   Math.round(freshPAL * 100) / 100, fresh_kg:    freshKG,
+      apls_pal:    Math.round(aplsPAL  * 100) / 100, apls_kg:     aplsKG,
+      paleti:      Math.round(totalPAL * 100) / 100,
+      kg:          totalKG,
+      priority:    getPriority(storeCode),
+    });
+  }
+
+  return results;
+}
+
+// ============================================================
+// CONVERSIE PAL → D60 / ROLLCAGE
+// ============================================================
+function convertPAL(val) {
+  if (!val || val === 0) return { type:'empty', d60:0, rc:0 };
+  const v = parseFloat(val);
+  // 1. D60 PRIMA: întreg sau .5 (ex: 1, 2.5, 7, 12)
+  const frac = v - Math.floor(v);
+  if (frac < 0.01 || Math.abs(frac - 0.5) < 0.01) {
+    return { type:'D60', d60: Math.round(v * 2), rc: 0 };
+  }
+  // 2. ROLLCAGE: multiplu de 0.67 (ex: 2.67, 5.33, 3.34, 4.67)
+  const rcEst = Math.round(v / 0.67);
+  if (rcEst > 0 && Math.abs(v - rcEst * 0.67) <= 0.08) {
+    return { type:'RC', d60: 0, rc: rcEst };
+  }
+  return { type:'MIX', d60:0, rc:0 };
+}
+
+function getRowConv(order) {
+  const ac = convertPAL(order.ambient_pal);
+  const fc = convertPAL(order.fresh_pal);
+  const lc = convertPAL(order.apls_pal);
+  return {
+    d60: (ac.d60||0) + (fc.d60||0) + (lc.d60||0),
+    rc:  (ac.rc ||0) + (fc.rc ||0) + (lc.rc ||0),
+  };
+}
+
+// ============================================================
+// TOPBAR
+// ============================================================
+function Topbar() {
+  return (
+    <header className="h-14 flex items-center justify-between px-6 flex-shrink-0 border-b border-blue-900" style={{background:'linear-gradient(135deg, #1E88E5 0%, #1565C0 60%, #0D47A1 100%)'}}>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-extrabold text-sm select-none shadow-lg">R</div>
+          <span className="text-white font-bold text-sm tracking-wide">RVM LOGISTICS</span>
+          <span className="text-blue-300 text-sm font-light">|</span>
+          <span className="text-blue-200 text-xs font-medium">v1 Planner</span>
+        </div>
+        <div className="h-5 w-px bg-blue-400 mx-1" />
+        <select className="text-xs px-3 py-1.5 rounded-lg border border-blue-400 focus:outline-none cursor-pointer text-white" style={{background:'rgba(255,255,255,0.15)'}}>
+          <option>HUB PLOIEȘTI</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-full bg-teal-700 flex items-center justify-center text-teal-200 text-xs font-bold">A</div>
+          <span className="text-blue-200 text-xs">admin</span>
+        </div>
+        <button className="text-xs px-3 py-1.5 rounded-lg bg-red-900/60 text-red-400 hover:bg-red-800 transition-colors font-semibold border border-red-900">Logout</button>
+      </div>
+    </header>
+  );
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function Sidebar() {
+  return (
+    <aside className="w-56 border-r border-blue-900 flex flex-col py-4 gap-1 flex-shrink-0" style={{background:'linear-gradient(180deg, #1E88E5 0%, #1565C0 50%, #0D47A1 100%)'}}>
+      {NAV_ITEMS.map(item => (
+        <a key={item.label}
+          href={item.href||'#'}
+          style={{textDecoration:'none'}}
+          className={`w-full flex items-center gap-4 py-4 px-6 text-left transition-all relative
+            ${item.active ? "text-white bg-white/20" : "text-blue-100 hover:text-white hover:bg-white/10"}`}>
+          {item.active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-10 bg-teal-500 rounded-r-full" />}
+          <span className="text-2xl leading-none">{item.icon}</span>
+          <span className="text-sm font-semibold tracking-wide">{item.label}</span>
+        </a>
+      ))}
+    </aside>
+  );
+}
+
+// ============================================================
+// SUMMARY BAR
+// ============================================================
+function SummaryBar({ orders }) {
+  const totAmbPAL   = orders.reduce((s,o) => s + (o.ambient_pal||0), 0);
+  const totAmbKG    = orders.reduce((s,o) => s + (o.ambient_kg||0), 0);
+  const totFreshPAL = orders.reduce((s,o) => s + (o.fresh_pal||0), 0);
+  const totFreshKG  = orders.reduce((s,o) => s + (o.fresh_kg||0), 0);
+  const totAplsPAL  = orders.reduce((s,o) => s + (o.apls_pal||0), 0);
+  const totAplsKG   = orders.reduce((s,o) => s + (o.apls_kg||0), 0);
+  const totPAL      = totAmbPAL + totFreshPAL + totAplsPAL;
+  const totKG       = totAmbKG  + totFreshKG  + totAplsKG;
+  const totD60      = orders.reduce((s,o) => s + getRowConv(o).d60, 0);
+  const totRC       = orders.reduce((s,o) => s + getRowConv(o).rc,  0);
+
+  const Chip = ({ label, pal, kg, palColor, kgColor, bg, border }) => (
+    <div className={`flex flex-col items-center px-4 py-2 rounded-xl border-2 ${bg} ${border}`}>
+      <span className={`text-lg font-extrabold ${palColor}`}>{Math.round(pal*100)/100} <span className="text-xs font-bold">pal</span></span>
+      <span className={`text-[10px] font-bold uppercase tracking-widest ${kgColor} opacity-80 mt-0.5`}>{label} · {kg.toLocaleString("ro-RO")} kg</span>
+    </div>
+  );
+
+  return (
+    <div className="flex gap-2 flex-wrap items-center">
+      <div className="flex flex-col items-center px-4 py-2 rounded-xl border-2 bg-blue-50 border-blue-200">
+        <span className="text-lg font-extrabold text-blue-600">{orders.length}</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-blue-500 opacity-80 mt-0.5">Magazine</span>
+      </div>
+      <div className="w-px h-10 bg-gray-200 mx-1" />
+      <Chip label="Ambient" pal={totAmbPAL}   kg={totAmbKG}   palColor="text-slate-600"  kgColor="text-slate-500"  bg="bg-slate-50"  border="border-slate-200" />
+      <Chip label="Fresh"   pal={totFreshPAL}  kg={totFreshKG}  palColor="text-green-600"  kgColor="text-green-500"  bg="bg-green-50"  border="border-green-200" />
+      <Chip label="APLS"    pal={totAplsPAL}   kg={totAplsKG}   palColor="text-purple-600" kgColor="text-purple-500" bg="bg-purple-50" border="border-purple-200" />
+      <div className="w-px h-10 bg-gray-200 mx-1" />
+      <Chip label="TOTAL"   pal={totPAL}       kg={totKG}       palColor="text-teal-700"   kgColor="text-teal-600"   bg="bg-teal-50"   border="border-teal-200" />
+      <div className="w-px h-10 bg-gray-200 mx-1" />
+      {totD60 > 0 && (
+        <div className="flex flex-col items-center px-4 py-2 rounded-xl border-2 bg-emerald-50 border-emerald-300">
+          <span className="text-lg font-extrabold text-emerald-700">{totD60}</span>
+          <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-600 opacity-90 mt-0.5">Düsseldorf</span>
+        </div>
+      )}
+      {totRC > 0 && (
+        <div className="flex flex-col items-center px-4 py-2 rounded-xl border-2 bg-amber-50 border-amber-300">
+          <span className="text-lg font-extrabold text-amber-700">{totRC}</span>
+          <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-600 opacity-90 mt-0.5">Rollcage</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// IMPORT SECTION
+// ============================================================
+function ImportSection({ onParsed, onClear }) {
+  const [pasteText, setPasteText] = React.useState("");
+  const [parseError, setParseError] = React.useState("");
+  const [isDragging, setIsDragging] = React.useState(false);
+  const fileRef = React.useRef();
+
+  const handleParse = () => {
+    if (!pasteText.trim()) { setParseError("Lipește datele din email sau încarcă un fișier."); return; }
+    const result = parseTable(pasteText);
+    if (result.length === 0) {
+      setParseError("Nu s-au detectat rânduri valide. Verifică formatul datelor.");
+    } else {
+      setParseError("");
+      onParsed(result);
+    }
+  };
+
+  const handleFile = (file) => {
+    if (!file) return;
+    setParseError("");
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === 'csv' || ext === 'txt') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = parseTable(e.target.result);
+        result.length ? onParsed(result) : setParseError("Fișier CSV fără date valide.");
+      };
+      reader.readAsText(file, 'UTF-8');
+
+    } else if (ext === 'xlsx' || ext === 'xls') {
+      if (typeof XLSX === 'undefined') { setParseError("Biblioteca XLSX nu s-a încărcat. Verifică conexiunea internet."); return; }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const tsv = XLSX.utils.sheet_to_csv(ws, { FS:'\t', defval:'' });
+          const result = parseTable(tsv);
+          result.length ? onParsed(result) : setParseError("Fișier XLSX fără date valide.");
+        } catch(err) {
+          setParseError("Eroare la citirea XLSX: " + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      setParseError("Format nesupportat. Folosește CSV, XLSX sau lipește textul.");
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault(); setIsDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-1 h-5 bg-teal-500 rounded-full" />
+        <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">Import date comenzi</h2>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* A — File Upload */}
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">A. Încarcă fișier CSV / XLSX</p>
+          <div
+            onDrop={onDrop}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onClick={() => fileRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+              ${isDragging ? "border-teal-400 bg-teal-50" : "border-gray-200 bg-gray-50 hover:border-teal-300 hover:bg-teal-50/30"}`}
+          >
+            <div className="text-3xl mb-2">📂</div>
+            <p className="text-sm font-bold text-gray-600">Trage fișierul aici</p>
+            <p className="text-xs text-gray-400 mt-1">sau click pentru selectare</p>
+            <p className="text-[10px] text-gray-300 mt-2 uppercase tracking-wider">CSV · XLSX · XLS</p>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="hidden"
+            onChange={(e) => handleFile(e.target.files[0])} />
+        </div>
+
+        {/* B — Paste Text */}
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">B. Lipește tabel din email</p>
+          <textarea
+            value={pasteText}
+            onChange={(e) => { setPasteText(e.target.value); setParseError(""); }}
+            placeholder={"Copiază tabelul din emailul Carrefour TMS și lipește-l aici.\n\nExemplu:\nHUB PLOIESTI\t000083\tS PLOIESTI 2\t5\t2324\t3\t876\t..."}
+            className="border border-gray-200 bg-gray-50 rounded-xl px-4 py-3 text-xs text-gray-700 resize-none
+                       focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent
+                       placeholder-gray-300 font-mono leading-relaxed"
+            rows={7}
+          />
+          <div className="flex gap-2">
+            <button onClick={handleParse}
+              className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold
+                         hover:bg-teal-700 transition-colors flex items-center justify-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              Parsează datele
+            </button>
+            <button onClick={() => { setPasteText(''); onClear && onClear(); }}
+              className="px-4 py-2.5 rounded-xl border border-red-200 text-red-500 hover:bg-red-50 transition-colors text-xs font-semibold">
+              Șterge tot
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {parseError && (
+        <div className="mt-4 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <span className="text-red-500 text-lg">⚠️</span>
+          <p className="text-xs text-red-600 font-semibold">{parseError}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ORDER ROW (editabil)
+// ============================================================
+function OrderRow({ order, onChange, onDelete }) {
+  const prioColor = PRIORITY_COLOR[order.priority] || PRIORITY_COLOR[3];
+  const totalPAL  = Math.round(((order.ambient_pal||0) + (order.fresh_pal||0) + (order.apls_pal||0)) * 100) / 100;
+  const totalKG   = (order.ambient_kg||0) + (order.fresh_kg||0) + (order.apls_kg||0);
+  const conv      = getRowConv(order);
+
+  const NumIn = ({ field, step, isFloat, bg }) => (
+    <input
+      type="number" value={order[field]} step={step} min="0"
+      onChange={(e) => onChange(order.id, field, isFloat ? parseFloat(e.target.value)||0 : parseInt(e.target.value)||0)}
+      className={`w-16 border border-gray-200 rounded-lg px-1 py-1.5 text-xs font-bold text-center
+                 focus:outline-none focus:ring-2 focus:ring-teal-400 ${bg}`}
+    />
+  );
+
+  return (
+    <tr className="border-b border-gray-100 hover:bg-gray-50/40 transition-colors">
+      {/* Cod + Denumire */}
+      <td className="px-3 py-2.5 text-xs font-mono text-gray-400 whitespace-nowrap">{order.store_code}</td>
+      <td className="px-3 py-2.5 border-r border-gray-100">
+        <span className="text-xs font-bold text-gray-800 whitespace-nowrap">{order.store_name}</span>
+      </td>
+      {/* AMBIENT */}
+      <td className="px-2 py-2.5 bg-slate-50/70"><NumIn field="ambient_pal" step={0.5} isFloat bg="bg-white" /></td>
+      <td className="px-2 py-2.5 bg-slate-50/70 border-r border-slate-100">
+        <input type="number" value={order.ambient_kg} min="0"
+          onChange={(e) => onChange(order.id, 'ambient_kg', parseInt(e.target.value)||0)}
+          className="w-20 border border-gray-200 rounded-lg px-1 py-1.5 text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+      </td>
+      {/* FRESH */}
+      <td className="px-2 py-2.5 bg-green-50/70"><NumIn field="fresh_pal" step={0.5} isFloat bg="bg-white" /></td>
+      <td className="px-2 py-2.5 bg-green-50/70 border-r border-green-100">
+        <input type="number" value={order.fresh_kg} min="0"
+          onChange={(e) => onChange(order.id, 'fresh_kg', parseInt(e.target.value)||0)}
+          className="w-20 border border-gray-200 rounded-lg px-1 py-1.5 text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+      </td>
+      {/* APLS */}
+      <td className="px-2 py-2.5 bg-purple-50/70"><NumIn field="apls_pal" step={0.5} isFloat bg="bg-white" /></td>
+      <td className="px-2 py-2.5 bg-purple-50/70 border-r border-purple-100">
+        <input type="number" value={order.apls_kg} min="0"
+          onChange={(e) => onChange(order.id, 'apls_kg', parseInt(e.target.value)||0)}
+          className="w-20 border border-gray-200 rounded-lg px-1 py-1.5 text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+      </td>
+      {/* TOTAL (read-only) */}
+      <td className="px-3 py-2.5 text-xs font-extrabold text-teal-700 text-right whitespace-nowrap">{totalPAL} pal</td>
+      <td className="px-3 py-2.5 text-xs font-extrabold text-purple-700 text-right whitespace-nowrap border-r border-gray-100">{totalKG.toLocaleString("ro-RO")} kg</td>
+      {/* D60 */}
+      <td className="px-2 py-2.5 text-center border-r border-emerald-100 bg-emerald-50/40">
+        {conv.d60 > 0
+          ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-extrabold text-white bg-emerald-500 shadow-sm whitespace-nowrap">
+              {conv.d60} <span className="opacity-80 font-semibold">D60</span>
+            </span>
+          : <span className="text-gray-200 text-xs">—</span>}
+      </td>
+      {/* ROLLCAGE */}
+      <td className="px-2 py-2.5 text-center border-r border-amber-100 bg-amber-50/40">
+        {conv.rc > 0
+          ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-extrabold text-white bg-amber-500 shadow-sm whitespace-nowrap">
+              {conv.rc} <span className="opacity-80 font-semibold">RC</span>
+            </span>
+          : <span className="text-gray-200 text-xs">—</span>}
+      </td>
+      {/* Prioritate */}
+      <td className="px-2 py-2.5">
+        <select value={order.priority}
+          onChange={(e) => onChange(order.id, 'priority', parseInt(e.target.value))}
+          className={`text-xs font-bold px-2 py-1.5 rounded-lg border cursor-pointer focus:outline-none ${prioColor}`}>
+          {[1,2,3,4,5].map(n => (
+            <option key={n} value={n}>{n} – {PRIORITY_LABEL[n]}</option>
+          ))}
+        </select>
+      </td>
+      {/* Delete */}
+      <td className="px-2 py-2.5 text-right">
+        <button onClick={() => onDelete(order.id)} title="Elimină rândul"
+          className="p-1.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 border border-red-200 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+// ============================================================
+// ORDERS TABLE
+// ============================================================
+function OrdersTable({ orders, onChange, onDelete }) {
+  if (orders.length === 0) return null;
+
+  const totAmbPAL   = orders.reduce((s,o) => s + (o.ambient_pal||0), 0);
+  const totAmbKG    = orders.reduce((s,o) => s + (o.ambient_kg||0), 0);
+  const totFreshPAL = orders.reduce((s,o) => s + (o.fresh_pal||0), 0);
+  const totFreshKG  = orders.reduce((s,o) => s + (o.fresh_kg||0), 0);
+  const totAplsPAL  = orders.reduce((s,o) => s + (o.apls_pal||0), 0);
+  const totAplsKG   = orders.reduce((s,o) => s + (o.apls_kg||0), 0);
+  const totPAL      = totAmbPAL + totFreshPAL + totAplsPAL;
+  const totKG       = totAmbKG  + totFreshKG  + totAplsKG;
+  const totD60      = orders.reduce((s,o) => s + getRowConv(o).d60, 0);
+  const totRC       = orders.reduce((s,o) => s + getRowConv(o).rc,  0);
+
+  const TH = ({ children, cls='' }) => (
+    <th className={`px-2 py-2 text-[10px] font-extrabold uppercase tracking-widest ${cls}`}>{children}</th>
+  );
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            {/* ── Rând grup ── */}
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <th colSpan={2} className="px-3 py-2 text-[10px] font-extrabold text-gray-400 uppercase tracking-widest text-left border-r border-gray-200">Magazin</th>
+              <th colSpan={2} className="px-3 py-2 text-[10px] font-extrabold text-slate-600 uppercase tracking-widest text-center bg-slate-50 border-r border-slate-200">Ambient</th>
+              <th colSpan={2} className="px-3 py-2 text-[10px] font-extrabold text-green-600 uppercase tracking-widest text-center bg-green-50 border-r border-green-200">Fresh</th>
+              <th colSpan={2} className="px-3 py-2 text-[10px] font-extrabold text-purple-600 uppercase tracking-widest text-center bg-purple-50 border-r border-purple-200">APLS</th>
+              <th colSpan={2} className="px-3 py-2 text-[10px] font-extrabold text-teal-600 uppercase tracking-widest text-center border-r border-gray-200">Total PAL</th>
+              <th className="px-3 py-2 text-[10px] font-extrabold text-emerald-700 uppercase tracking-widest text-center bg-emerald-50 border-r border-emerald-200">Düsseldorf</th>
+              <th className="px-3 py-2 text-[10px] font-extrabold text-amber-700 uppercase tracking-widest text-center bg-amber-50 border-r border-amber-200">Rollcage</th>
+              <th colSpan={2} className="px-3 py-2"></th>
+            </tr>
+            {/* ── Sub-header ── */}
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <TH cls="text-left text-gray-400">Cod</TH>
+              <TH cls="text-left text-gray-400 border-r border-gray-200">Denumire</TH>
+              <TH cls="text-center text-slate-500 bg-slate-50">PAL</TH>
+              <TH cls="text-center text-slate-500 bg-slate-50 border-r border-slate-200">KG</TH>
+              <TH cls="text-center text-green-500 bg-green-50">PAL</TH>
+              <TH cls="text-center text-green-500 bg-green-50 border-r border-green-200">KG</TH>
+              <TH cls="text-center text-purple-500 bg-purple-50">PAL</TH>
+              <TH cls="text-center text-purple-500 bg-purple-50 border-r border-purple-200">KG</TH>
+              <TH cls="text-center text-teal-600">PAL</TH>
+              <TH cls="text-center text-teal-600 border-r border-gray-200">KG</TH>
+              <TH cls="text-center text-emerald-700 bg-emerald-50 border-r border-emerald-200">buc</TH>
+              <TH cls="text-center text-amber-700 bg-amber-50 border-r border-amber-200">buc</TH>
+              <TH cls="text-center text-gray-400">Prio</TH>
+              <th className="px-2 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...orders].sort((a,b) => a.priority - b.priority).map(order => (
+              <OrderRow key={order.id} order={order} onChange={onChange} onDelete={onDelete} />
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-gray-50 border-t-2 border-gray-200 text-xs font-extrabold">
+              <td colSpan={2} className="px-3 py-3 text-gray-500 uppercase tracking-wider border-r border-gray-200 text-[10px]">TOTAL — {orders.length} magazine</td>
+              <td className="px-2 py-3 text-slate-600 text-center bg-slate-50">{Math.round(totAmbPAL*100)/100}</td>
+              <td className="px-2 py-3 text-slate-600 text-center bg-slate-50 border-r border-slate-200">{totAmbKG.toLocaleString("ro-RO")}</td>
+              <td className="px-2 py-3 text-green-600 text-center bg-green-50">{Math.round(totFreshPAL*100)/100}</td>
+              <td className="px-2 py-3 text-green-600 text-center bg-green-50 border-r border-green-200">{totFreshKG.toLocaleString("ro-RO")}</td>
+              <td className="px-2 py-3 text-purple-600 text-center bg-purple-50">{Math.round(totAplsPAL*100)/100}</td>
+              <td className="px-2 py-3 text-purple-600 text-center bg-purple-50 border-r border-purple-200">{totAplsKG.toLocaleString("ro-RO")}</td>
+              <td className="px-2 py-3 text-teal-700 text-center">{Math.round(totPAL*100)/100} pal</td>
+              <td className="px-2 py-3 text-teal-700 text-center border-r border-gray-200">{totKG.toLocaleString("ro-RO")} kg</td>
+              <td className="px-2 py-3 text-center bg-emerald-50 border-r border-emerald-200">
+                <span className="px-2 py-1 rounded-lg bg-emerald-500 text-white font-extrabold text-xs">{totD60} D60</span>
+              </td>
+              <td className="px-2 py-3 text-center bg-amber-50 border-r border-amber-200">
+                <span className="px-2 py-1 rounded-lg bg-amber-500 text-white font-extrabold text-xs">{totRC} RC</span>
+              </td>
+              <td colSpan={2}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SAVE CONFIRMATION MODAL
+// ============================================================
+function SaveModal({ saved, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-100 text-center">
+        <div className="text-5xl mb-4">✅</div>
+        <h3 className="text-lg font-extrabold text-gray-900 mb-2">Zi de planificare salvată!</h3>
+        <div className="bg-gray-50 rounded-xl p-4 text-left mb-6 text-xs font-mono text-gray-600 space-y-1">
+          <p><span className="font-bold text-gray-800">Data:</span> {saved.date}</p>
+          <p><span className="font-bold text-gray-800">HUB:</span> {saved.hub}</p>
+          <p><span className="font-bold text-gray-800">Magazine:</span> {saved.orders.length}</p>
+          <p><span className="font-bold text-gray-800">Paleți:</span> {Math.round(saved.orders.reduce((s,o) => s+o.paleti, 0) * 100)/100}</p>
+          <p><span className="font-bold text-gray-800">KG:</span> {saved.orders.reduce((s,o) => s+o.kg, 0).toLocaleString("ro-RO")}</p>
+        </div>
+        <button onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-teal-600 text-white font-bold hover:bg-teal-700 transition-colors">
+          OK
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// APP
+// ============================================================
+function App() {
+  const today = new Date().toISOString().split('T')[0];
+
+  // Restaurează datele din localStorage la revenirea pe pagină
+  const [selectedDate, setSelectedDate] = React.useState(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem('rvm_orders_draft') || 'null');
+      if (draft?.date) return draft.date;
+    } catch(e) {}
+    return today;
+  });
+  const [orders, setOrders] = React.useState(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem('rvm_orders_draft') || 'null');
+      if (draft?.orders && Array.isArray(draft.orders) && draft.orders.length > 0)
+        return draft.orders;
+    } catch(e) {}
+    return [];
+  });
+  const [savedPlan, setSavedPlan]   = React.useState(null);
+  const [showSaved, setShowSaved]   = React.useState(false);
+  const [parseCount, setParseCount] = React.useState(0);
+
+  // Salvează automat la orice modificare; șterge din localStorage când lista e goală
+  React.useEffect(() => {
+    if (orders.length > 0) {
+      localStorage.setItem('rvm_orders_draft', JSON.stringify({
+        orders,
+        date: selectedDate,
+        savedAt: new Date().toISOString(),
+      }));
+    } else {
+      localStorage.removeItem('rvm_orders_draft');
+    }
+  }, [orders, selectedDate]);
+
+  const handleParsed = (result) => {
+    setOrders(result);
+    setParseCount(c => c + 1);
+  };
+
+  const handleChange = (id, field, value) => {
+    setOrders(p => p.map(o => {
+      if (o.id !== id) return o;
+      const updated = { ...o, [field]: value };
+      // Recalculează totalurile când se modifică câmpurile pe tip marfă
+      if (['ambient_pal','fresh_pal','apls_pal','ambient_kg','fresh_kg','apls_kg'].includes(field)) {
+        updated.paleti = Math.round(((updated.ambient_pal||0) + (updated.fresh_pal||0) + (updated.apls_pal||0)) * 100) / 100;
+        updated.kg     = (updated.ambient_kg||0) + (updated.fresh_kg||0) + (updated.apls_kg||0);
+      }
+      return updated;
+    }));
+  };
+
+  const handleDelete = (id) => {
+    setOrders(p => p.filter(o => o.id !== id));
+  };
+
+  const handleClear = () => {
+    setOrders([]);
+    localStorage.removeItem('rvm_orders_draft');
+    localStorage.removeItem('rvm_orders_today');
+  };
+
+  const handleDemo = () => {
+    setOrders(DEMO_ORDERS.map(o => ({ ...o })));
+    setParseCount(c => c + 1);
+  };
+
+  const handleSave = () => {
+    const plan = {
+      date:   selectedDate,
+      hub:    "HUB PLOIEȘTI",
+      orders: orders,
+      savedAt: new Date().toISOString(),
+    };
+    setSavedPlan(plan);
+    setShowSaved(true);
+  };
+
+  const handleSendToPlanning = () => {
+    // Convertim în formatul folosit de page-rute.html și page-planificare.html
+    const planningOrders = orders.map(o => {
+      const conv = getRowConv(o);
+      return {
+        id:          o.id,
+        cod:         o.store_code,
+        magazin:     o.store_name,
+        d60:         conv.d60,
+        rolls:       conv.rc,
+        kg:          o.kg,
+        prioritate:  o.priority,
+        activ:       true,
+        ambient_pal: o.ambient_pal || 0,
+        fresh_pal:   o.fresh_pal   || 0,
+        apls_pal:    o.apls_pal    || 0,
+      };
+    });
+    const payload = {
+      date:     selectedDate,
+      hub:      "HUB PLOIEȘTI",
+      orders:   planningOrders,
+      savedAt:  new Date().toISOString(),
+    };
+    localStorage.setItem('rvm_orders_today', JSON.stringify(payload));
+    window.location.href = 'page-rute.html';
+  };
+
+  const todayFormatted = new Date(selectedDate + 'T12:00:00').toLocaleDateString("ro-RO", {
+    weekday:"long", year:"numeric", month:"long", day:"numeric"
+  });
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100 overflow-hidden">
+      <Topbar />
+
+      {showSaved && savedPlan && (
+        <SaveModal saved={savedPlan} onClose={() => setShowSaved(false)} />
+      )}
+
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+
+        <main className="flex-1 overflow-y-auto p-6">
+
+          {/* ── Header card ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <p className="text-[10px] font-extrabold text-teal-600 uppercase tracking-widest mb-1">Import date</p>
+                <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Comenzi zilnice</h1>
+                <p className="text-sm text-gray-400 mt-1">
+                  Importă comenzile zilnice primite pe email și pregătește-le pentru planificare automată.
+                </p>
+              </div>
+              <button onClick={handleDemo}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-colors shadow-sm flex-shrink-0 ml-4">
+                🧪 Încarcă exemplu (18 mar 2026)
+              </button>
+            </div>
+
+            {/* Date + Hub */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Data planificării</label>
+                <input type="date" value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700
+                             focus:outline-none focus:ring-2 focus:ring-teal-400" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">HUB</label>
+                <select className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm font-semibold text-gray-700
+                                   focus:outline-none focus:ring-2 focus:ring-teal-400">
+                  <option>HUB PLOIEȘTI</option>
+                </select>
+              </div>
+              {orders.length > 0 && (
+                <div className="flex items-end pb-0.5 ml-2">
+                  <span className="text-xs text-gray-400 italic capitalize">{todayFormatted}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Import section ── */}
+          <ImportSection onParsed={handleParsed} onClear={handleClear} />
+
+          {/* ── Results ── */}
+          {orders.length > 0 && (
+            <>
+              {/* Summary + actions */}
+              <div className="flex flex-col gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-5 bg-teal-500 rounded-full" />
+                    <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">
+                      Previzualizare comenzi
+                    </h2>
+                  </div>
+                  <span className="text-xs bg-teal-100 text-teal-700 font-bold px-2 py-0.5 rounded-full border border-teal-200">
+                    {orders.length} magazine
+                  </span>
+                  {parseCount > 0 && (
+                    <span className="text-[10px] text-gray-400">
+                      • Editabil — modifică direct în tabel
+                    </span>
+                  )}
+                </div>
+                <SummaryBar orders={orders} />
+              </div>
+
+              {/* Table */}
+              <OrdersTable orders={orders} onChange={handleChange} onDelete={handleDelete} />
+
+              {/* Action buttons */}
+              <div className="flex gap-4 justify-end">
+                <button onClick={handleSendToPlanning}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl border-2 border-teal-500 text-teal-600
+                             font-bold text-sm hover:bg-teal-50 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"/>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                  </svg>
+                  Trimite la planificare automată
+                </button>
+
+                <button onClick={handleSave}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-teal-600 text-white
+                             font-bold text-sm hover:bg-teal-700 transition-colors shadow-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                  </svg>
+                  Salvează ziua de planificare
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Empty state */}
+          {orders.length === 0 && (
+            <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-20 text-center">
+              <p className="text-6xl mb-4">📦</p>
+              <p className="font-extrabold text-gray-700 text-xl">Nu există comenzi încărcate</p>
+              <p className="text-sm text-gray-400 mt-2 mb-6">
+                Lipești tabelul din emailul Carrefour TMS sau încarci un fișier CSV/XLSX
+              </p>
+              <button onClick={handleDemo}
+                className="px-6 py-3 rounded-xl bg-teal-600 text-white font-bold text-sm hover:bg-teal-700 transition-colors">
+                🧪 Încarcă exemplu demonstrativ
+              </button>
+            </div>
+          )}
+
+        </main>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

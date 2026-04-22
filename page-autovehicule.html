@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RVM Logistics – Auto</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { inter: ['Inter', 'sans-serif'] },
+          colors: {
+            teal: {
+              50:  '#F0FDFA', 100: '#CCFBF1', 200: '#99F6E4',
+              400: '#2DD4BF', 500: '#14B8A6', 600: '#0D9488',
+              700: '#0F766E', 800: '#115E59', 900: '#134E4A',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    body { margin: 0; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #F3F4F6; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+  </style>
+</head>
+<body class="bg-gray-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+
+  // ============================================================
+  // MOCK DATA
+  // ============================================================
+  const INITIAL_VEHICLES = [
+    { id: 1, numar: "PH26RVM", denumire: "Camion Mic 1",   mma: 5000,  capacitate_ep: 8,  capacitate_d60: 16, capacitate_rolls: 12, util_kg: 3000,  prioritate: 1, status: "disponibil", obligatoriu: false },
+    { id: 2, numar: "PH41RVM", denumire: "Camion Mic 2",   mma: 5000,  capacitate_ep: 8,  capacitate_d60: 16, capacitate_rolls: 12, util_kg: 3000,  prioritate: 2, status: "service",    obligatoriu: false },
+    { id: 3, numar: "PH58RVM", denumire: "Camion Mediu 1", mma: 5000,  capacitate_ep: 10, capacitate_d60: 20, capacitate_rolls: 15, util_kg: 3000,  prioritate: 3, status: "disponibil", obligatoriu: false },
+    { id: 4, numar: "PH73RVM", denumire: "Camion Mediu 2", mma: 7200,  capacitate_ep: 10, capacitate_d60: 20, capacitate_rolls: 15, util_kg: 4000,  prioritate: 4, status: "disponibil", obligatoriu: false },
+    { id: 5, numar: "B791RVM", denumire: "Camion Mare 1",  mma: 7200,  capacitate_ep: 12, capacitate_d60: 24, capacitate_rolls: 18, util_kg: 4200,  prioritate: 5, status: "disponibil", obligatoriu: false },
+    { id: 6, numar: "PH93RVM", denumire: "Camion Mare 2",  mma: 7500,  capacitate_ep: 13, capacitate_d60: 26, capacitate_rolls: 19, util_kg: 4200,  prioritate: 6, status: "service",    obligatoriu: false },
+    { id: 7, numar: "PH15COX", denumire: "TIR 1",          mma: 20000, capacitate_ep: 20, capacitate_d60: 40, capacitate_rolls: 30, util_kg: 10000, prioritate: 7, status: "disponibil", obligatoriu: false },
+  ];
+
+  const INITIAL_DRIVERS = [
+    { id:1, nume:"", activ:true  },
+    { id:2, nume:"", activ:true  },
+    { id:3, nume:"", activ:true  },
+    { id:4, nume:"", activ:true  },
+    { id:5, nume:"", activ:false },
+    { id:6, nume:"", activ:false },
+  ];
+
+  // Încarcă șoferii din localStorage (sincronizat cu pagina Rute)
+  function loadDrivers() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('rvm_drivers') || 'null');
+      if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+      // Dacă pagina Rute a salvat doar numărul de activi, îl folosim ca referință
+      const cnt = parseInt(localStorage.getItem('rvm_active_drivers') || '0');
+      if (cnt > 0) {
+        const base = INITIAL_DRIVERS.map(d => ({ ...d, activ: d.id <= cnt }));
+        return base;
+      }
+    } catch(e) {}
+    return INITIAL_DRIVERS;
+  }
+
+  const EMPTY_FORM = {
+    numar: "", denumire: "", mma: "", capacitate_ep: "",
+    capacitate_d60: "", capacitate_rolls: "", util_kg: "", prioritate: "1"
+  };
+
+  // Preseturi tip vehicul
+  const VEHICLE_PRESETS = [
+    {
+      label: "Camion Mic",
+      icon: "🚐",
+      tag: "CM",
+      defaults: { mma: "3499", capacitate_ep: "8",  capacitate_d60: "16", capacitate_rolls: "15", util_kg: "3000" }
+    },
+    {
+      label: "Camion Mediu",
+      icon: "🚚",
+      tag: "CMed",
+      defaults: { mma: "7200", capacitate_ep: "10", capacitate_d60: "20", capacitate_rolls: "18", util_kg: "4000" }
+    },
+    {
+      label: "Camion Mare",
+      icon: "🚛",
+      tag: "CMar",
+      defaults: { mma: "7200", capacitate_ep: "12", capacitate_d60: "24", capacitate_rolls: "21", util_kg: "4200" }
+    },
+  ];
+
+  const NAV_ITEMS = [
+    { label:"Planificare", icon:"📋", href:"page-planificare.html" },
+    { label:"Comenzi",     icon:"📦", href:"page-comenzi.html"    },
+    { label:"Rute",        icon:"🗺️", href:"page-rute.html"       },
+    { label:"Auto",        icon:"🚚", href:"page-autovehicule.html", active:true },
+    { label:"Magazine",    icon:"🏪", href:"page-magazine.html"   },
+    { label:"Utilizatori", icon:"👥", href:"page-utilizatori.html"},
+    { label:"Huburi",      icon:"🏭", href:"page-huburi.html"     },
+  ];
+
+  // ============================================================
+  // TOPBAR
+  // ============================================================
+  function Topbar() {
+    return (
+      <header className="h-14 flex items-center justify-between px-6 flex-shrink-0 border-b border-blue-900" style={{background:'linear-gradient(135deg, #1E88E5 0%, #1565C0 60%, #0D47A1 100%)'}}>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-extrabold text-sm select-none shadow-lg">
+              R
+            </div>
+            <span className="text-white font-bold text-sm tracking-wide">RVM LOGISTICS</span>
+            <span className="text-blue-300 text-sm font-light">|</span>
+            <span className="text-blue-200 text-xs font-medium">v1 Planner</span>
+          </div>
+          <div className="h-5 w-px bg-blue-400 mx-1" />
+          <select className="text-xs px-3 py-1.5 rounded-lg border border-blue-400 focus:outline-none cursor-pointer text-white" style={{background:'rgba(255,255,255,0.15)'}}>
+            <option>HUB PLOIEȘTI</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-teal-700 flex items-center justify-center text-teal-200 text-xs font-bold">A</div>
+            <span className="text-blue-200 text-xs">admin</span>
+          </div>
+          <button className="text-xs px-3 py-1.5 rounded-lg bg-red-900/60 text-red-400 hover:bg-red-800 transition-colors font-semibold border border-red-900">
+            Logout
+          </button>
+        </div>
+      </header>
+    );
+  }
+
+  // ============================================================
+  // SIDEBAR
+  // ============================================================
+  function Sidebar() {
+    return (
+      <aside className="w-56 border-r border-blue-900 flex flex-col py-4 gap-1 flex-shrink-0" style={{background:'linear-gradient(180deg, #1E88E5 0%, #1565C0 50%, #0D47A1 100%)'}}>
+        {NAV_ITEMS.map(item => (
+          <a
+            key={item.label}
+            href={item.href||'#'}
+            style={{textDecoration:'none'}}
+            className={`w-full flex items-center gap-4 py-4 px-6 text-left transition-all relative
+              ${item.active
+                ? "text-white bg-white/20"
+                : "text-blue-100 hover:text-white hover:bg-white/10"
+              }`}
+          >
+            {item.active && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-10 bg-teal-500 rounded-r-full" />
+            )}
+            <span className="text-2xl leading-none">{item.icon}</span>
+            <span className="text-sm font-semibold tracking-wide">{item.label}</span>
+          </a>
+        ))}
+      </aside>
+    );
+  }
+
+  // ============================================================
+  // STATS CARD
+  // ============================================================
+  function StatsCard({ label, value, color }) {
+    const styles = {
+      teal:   { wrap: "bg-teal-50 border-teal-200",   num: "text-teal-600",   lbl: "text-teal-500"   },
+      yellow: { wrap: "bg-yellow-50 border-yellow-200", num: "text-yellow-600", lbl: "text-yellow-500" },
+      green:  { wrap: "bg-emerald-50 border-emerald-200", num: "text-emerald-600", lbl: "text-emerald-500" },
+    };
+    const s = styles[color];
+    return (
+      <div className={`flex flex-col items-center px-6 py-4 rounded-xl border-2 ${s.wrap} min-w-[110px]`}>
+        <span className={`text-3xl font-extrabold leading-none ${s.num}`}>{value}</span>
+        <span className={`text-xs font-semibold mt-1.5 text-center leading-tight ${s.lbl}`}>{label}</span>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // FORM INPUT
+  // ============================================================
+  function FormInput({ label, type = "text", value, onChange, placeholder, min }) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</label>
+        <input
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          min={min}
+          className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-800
+                     focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent
+                     placeholder-gray-300 transition-all"
+        />
+      </div>
+    );
+  }
+
+  // ============================================================
+  // VEHICLE CARD
+  // ============================================================
+  function VehicleCard({ vehicle, onToggleStatus, onToggleObligatoriu, onEdit, onDelete }) {
+    const ok   = vehicle.status === "disponibil";
+    const obl  = vehicle.obligatoriu === true;
+    const isOras = vehicle.mma < 3500;
+
+    return (
+      <div className={`bg-white rounded-2xl border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden flex flex-col
+        ${obl ? "border-amber-400 ring-2 ring-amber-200" : "border-gray-100"}`}>
+
+        {/* Header */}
+        <div className={`px-5 py-4 border-b flex items-start justify-between ${obl ? "bg-amber-50 border-amber-100" : "bg-gray-50/50 border-gray-50"}`}>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-extrabold text-gray-900 text-base tracking-widest">{vehicle.numar}</h3>
+              {isOras && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-yellow-100 text-yellow-700 border border-yellow-200">
+                  ORAȘ
+                </span>
+              )}
+              {obl && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-200 text-amber-800 border border-amber-300">
+                  FORȚAT AZI
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">ID: {vehicle.id} · {vehicle.denumire}</p>
+          </div>
+          <div className="flex flex-col items-end gap-1.5">
+            <span className={`text-xs font-extrabold px-4 py-2 rounded-full tracking-widest
+              ${ok
+                ? "bg-teal-100 text-teal-700 border border-teal-200"
+                : "bg-red-100 text-red-600 border border-red-200"
+              }`}>
+              {ok ? "DISPONIBIL" : "SERVICE"}
+            </span>
+            {/* Buton OBLIGATORIU — dezactivat dacă vehiculul e în service */}
+            <button
+              onClick={() => ok && onToggleObligatoriu(vehicle.id)}
+              disabled={!ok}
+              title={!ok ? "Nu se poate seta obligatoriu — vehicul în service" : obl ? "Click pentru a elimina obligativitatea" : "Click pentru a marca ca obligatoriu azi"}
+              className={`text-[10px] font-extrabold px-3 py-1 rounded-full tracking-widest transition-all border
+                ${!ok
+                  ? "bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed opacity-50"
+                  : obl
+                    ? "bg-amber-400 text-white border-amber-500 hover:bg-amber-500 shadow-sm cursor-pointer"
+                    : "bg-white text-gray-400 border-gray-200 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 cursor-pointer"
+                }`}>
+              {obl && ok ? "★ OBLIGATORIU" : "☆ Obligatoriu"}
+            </button>
+          </div>
+        </div>
+
+        {/* Details */}
+        <div className="px-5 py-4 grid grid-cols-2 gap-y-3 gap-x-3 flex-1">
+          {[
+            ["MMA",        `${vehicle.mma.toLocaleString("ro-RO")} kg`],
+            ["UTIL KG",    `${vehicle.util_kg.toLocaleString("ro-RO")} kg`],
+            ["Cap. EP",    `${vehicle.capacitate_ep} pal`],
+            ["Cap. D60",   `${vehicle.capacitate_d60} pal`],
+            ["Cap. ROLLS", `${vehicle.capacitate_rolls}`],
+            ["Prioritate", `#${vehicle.prioritate}`],
+          ].map(([lbl, val]) => (
+            <div key={lbl}>
+              <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">{lbl}</p>
+              <p className="text-sm font-bold text-gray-700 mt-0.5">{val}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 pb-4 pt-1 flex gap-2 items-center">
+          {ok ? (
+            <button
+              onClick={() => onToggleStatus(vehicle.id)}
+              className="flex-1 text-xs font-bold py-2.5 rounded-xl bg-yellow-50 text-yellow-700
+                         hover:bg-yellow-100 border border-yellow-200 transition-colors"
+            >
+              Trimite în service
+            </button>
+          ) : (
+            <button
+              onClick={() => onToggleStatus(vehicle.id)}
+              className="flex-1 text-xs font-bold py-2.5 rounded-xl bg-teal-50 text-teal-700
+                         hover:bg-teal-100 border border-teal-200 transition-colors"
+            >
+              ✓ Activează
+            </button>
+          )}
+
+          <button
+            onClick={() => onEdit(vehicle)}
+            className="flex-1 text-xs font-bold py-2.5 rounded-xl bg-blue-50 text-blue-600
+                       hover:bg-blue-100 border border-blue-200 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Modifică
+          </button>
+
+          <button
+            onClick={() => onDelete(vehicle.id)}
+            title="Șterge vehicul"
+            className="p-2.5 rounded-xl bg-red-50 text-red-500 hover:bg-red-100
+                       border border-red-200 transition-colors flex items-center justify-center"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6"/>
+              <path d="M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // EDIT MODAL
+  // ============================================================
+  function EditModal({ vehicle, onSave, onCancel }) {
+    const [form, setForm] = React.useState({
+      numar:            vehicle.numar,
+      denumire:         vehicle.denumire,
+      mma:              String(vehicle.mma),
+      capacitate_ep:    String(vehicle.capacitate_ep),
+      capacitate_d60:   String(vehicle.capacitate_d60),
+      capacitate_rolls: String(vehicle.capacitate_rolls),
+      util_kg:          String(vehicle.util_kg),
+      prioritate:       String(vehicle.prioritate),
+    });
+
+    const field = (f) => (e) => setForm(p => ({ ...p, [f]: e.target.value }));
+
+    const handleSave = (e) => {
+      e.preventDefault();
+      onSave({
+        ...vehicle,
+        numar:            form.numar.trim().toUpperCase(),
+        denumire:         form.denumire.trim(),
+        mma:              parseInt(form.mma)               || 0,
+        capacitate_ep:    parseInt(form.capacitate_ep)     || 0,
+        capacitate_d60:   parseInt(form.capacitate_d60)    || 0,
+        capacitate_rolls: parseFloat(form.capacitate_rolls)|| 0,
+        util_kg:          parseInt(form.util_kg)           || 0,
+        prioritate:       parseInt(form.prioritate)        || 1,
+      });
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-gray-100">
+          {/* Modal header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-gray-900">Modifică vehicul</h3>
+                <p className="text-xs text-gray-400">{vehicle.numar} · ID: {vehicle.id}</p>
+              </div>
+            </div>
+            <button onClick={onCancel}
+              className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors font-bold text-lg">
+              ×
+            </button>
+          </div>
+
+          {/* Modal form */}
+          <form onSubmit={handleSave} className="p-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <FormInput label="ID / Număr auto" value={form.numar} onChange={field("numar")} placeholder="PH99XYZ" />
+              </div>
+              <div className="col-span-2">
+                <FormInput label="Denumire" value={form.denumire} onChange={field("denumire")} placeholder="Camion Mic 3" />
+              </div>
+              <FormInput label="MMA (CIV)"        value={form.mma}              onChange={field("mma")}              placeholder="5000"  type="number" min="0" />
+              <FormInput label="UTIL KG"           value={form.util_kg}          onChange={field("util_kg")}          placeholder="3000"  type="number" min="0" />
+              <FormInput label="Capacitate EP"     value={form.capacitate_ep}    onChange={field("capacitate_ep")}    placeholder="8"     type="number" min="0" />
+              <FormInput label="Capacitate D60"    value={form.capacitate_d60}   onChange={field("capacitate_d60")}   placeholder="16"    type="number" min="0" />
+              <FormInput label="Capacitate ROLLS"  value={form.capacitate_rolls} onChange={field("capacitate_rolls")} placeholder="15"    type="number" min="0" />
+              <FormInput label="Prioritate"        value={form.prioritate}       onChange={field("prioritate")}       placeholder="1"     type="number" min="1" />
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button type="button" onClick={onCancel}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+                Anulează
+              </button>
+              <button type="submit"
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors">
+                Salvează modificările
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // CONFIRM DELETE MODAL
+  // ============================================================
+  function ConfirmModal({ numar, onConfirm, onCancel }) {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-100">
+          <div className="text-center">
+            <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-2xl mx-auto mb-4">🗑️</div>
+            <h3 className="text-lg font-extrabold text-gray-900 mb-2">Ștergi vehiculul?</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              <span className="font-bold text-gray-800">{numar}</span> va fi eliminat definitiv din flotă.
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+              Anulează
+            </button>
+            <button onClick={onConfirm}
+              className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors">
+              Șterge
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // DRIVER SLOT
+  // ============================================================
+  function DriverSlot({ driver, onToggle, onRename }) {
+    const [editing, setEditing] = React.useState(false);
+    const [tempName, setTempName] = React.useState(driver.nume);
+
+    const commitName = () => {
+      onRename(driver.id, tempName.trim());
+      setEditing(false);
+    };
+
+    const displayName = driver.nume || `Șofer ${driver.id}`;
+
+    return (
+      <div className={`rounded-2xl border-2 p-4 flex flex-col items-center gap-3 transition-all duration-200
+        ${driver.activ
+          ? "border-indigo-200 bg-indigo-50"
+          : "border-gray-200 bg-gray-50 opacity-60"}`}>
+
+        {/* Număr */}
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center font-extrabold text-lg select-none shadow-sm
+          ${driver.activ ? "bg-indigo-600 text-white" : "bg-gray-300 text-gray-500"}`}>
+          {driver.id}
+        </div>
+
+        {/* Nume editabil */}
+        {editing ? (
+          <input
+            value={tempName}
+            onChange={e => setTempName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") { setTempName(driver.nume); setEditing(false); } }}
+            className="text-xs font-semibold text-center w-full border border-indigo-300 rounded-lg px-2 py-1
+                       focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+            placeholder="Nume șofer"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => { setTempName(driver.nume); setEditing(true); }}
+            title="Click pentru editare nume"
+            className={`text-xs font-semibold text-center w-full truncate px-1 py-1 rounded-lg
+              hover:bg-white/70 transition-colors
+              ${driver.activ ? "text-indigo-700" : "text-gray-400"}`}>
+            {displayName}
+          </button>
+        )}
+
+        {/* Toggle activ/inactiv */}
+        <button
+          onClick={() => onToggle(driver.id)}
+          className={`w-full py-1.5 rounded-xl text-[10px] font-extrabold tracking-widest transition-all
+            ${driver.activ
+              ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+              : "bg-gray-200 text-gray-500 hover:bg-gray-300"}`}>
+          {driver.activ ? "● ACTIV" : "○ INACTIV"}
+        </button>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // DRIVERS PANEL
+  // ============================================================
+  function DriversPanel({ drivers, onToggle, onRename, onAdd }) {
+    const activi = drivers.filter(d => d.activ).length;
+
+    return (
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-5 bg-indigo-500 rounded-full" />
+            <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">Șoferi activi azi</h2>
+            <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full
+              ${activi > 0 ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-400"}`}>
+              {activi} activ{activi !== 1 ? "i" : ""}
+            </span>
+          </div>
+          <button
+            onClick={onAdd}
+            className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl
+                       bg-indigo-50 text-indigo-700 border border-indigo-200
+                       hover:bg-indigo-100 transition-colors">
+            + Adaugă șofer
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
+          {drivers.map(d => (
+            <DriverSlot key={d.id} driver={d} onToggle={onToggle} onRename={onRename} />
+          ))}
+        </div>
+
+        {activi > 0 && (
+          <p className="text-[10px] text-gray-400 mt-4 flex items-center gap-1">
+            <span>💡</span>
+            Click pe numele unui șofer pentru a-l edita. Vehiculele vor fi alocate automat la generarea rutelor.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ============================================================
+  // APP
+  // ============================================================
+  function App() {
+    const [vehicles, setVehicles]         = React.useState(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('rvm_fleet') || 'null');
+        if (saved && Array.isArray(saved) && saved.length > 0)
+          return saved.map(v => ({ obligatoriu: false, ...v })); // asigură câmpul obligatoriu
+      } catch(e) {}
+      return INITIAL_VEHICLES;
+    });
+    const [drivers, setDrivers]           = React.useState(() => loadDrivers());
+    const [form, setForm]                 = React.useState(EMPTY_FORM);
+    const [nextId, setNextId]             = React.useState(INITIAL_VEHICLES.length + 1);
+    const [deleteTarget, setDeleteTarget] = React.useState(null);
+    const [editTarget, setEditTarget]     = React.useState(null);
+    const [formError, setFormError]       = React.useState("");
+
+    const toggleDriver  = (id) => setDrivers(p => p.map(d => d.id === id ? { ...d, activ: !d.activ } : d));
+    const renameDriver  = (id, nume) => setDrivers(p => p.map(d => d.id === id ? { ...d, nume } : d));
+    const addDriver     = () => setDrivers(p => [...p, { id: p.length + 1, nume: "", activ: true }]);
+
+    // Sincronizare automată cu pagina Rute — vehicule
+    React.useEffect(() => {
+      localStorage.setItem('rvm_fleet', JSON.stringify(vehicles));
+    }, [vehicles]);
+
+    // Sincronizare șoferi ↔ pagina Rute (rvm_drivers + rvm_active_drivers)
+    React.useEffect(() => {
+      localStorage.setItem('rvm_drivers', JSON.stringify(drivers));
+      localStorage.setItem('rvm_active_drivers', String(drivers.filter(d => d.activ).length));
+    }, [drivers]);
+
+    const total       = vehicles.length;
+    const oras        = vehicles.filter(v => v.mma < 3500).length;
+    const disponibile = vehicles.filter(v => v.status === "disponibil").length;
+
+    const field = (f) => (e) => setForm(p => ({ ...p, [f]: e.target.value }));
+
+    // Aplică un preset de tip vehicul + ID auto
+    const applyPreset = (preset) => {
+      const sameType = vehicles.filter(v => v.denumire.startsWith(preset.label)).length + 1;
+      setForm(p => ({
+        ...p,
+        denumire: `${preset.label} ${sameType}`,
+        numar: `${preset.tag}-${nextId}`,
+        prioritate: String(nextId),
+        ...preset.defaults,
+      }));
+      setFormError("");
+    };
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      if (!form.numar.trim()) { setFormError("Numărul auto este obligatoriu."); return; }
+      setFormError("");
+      const v = {
+        id:               nextId,
+        numar:            form.numar.trim().toUpperCase(),
+        denumire:         form.denumire.trim() || form.numar.trim().toUpperCase(),
+        mma:              parseInt(form.mma)               || 0,
+        capacitate_ep:    parseInt(form.capacitate_ep)     || 0,
+        capacitate_d60:   parseInt(form.capacitate_d60)    || 0,
+        capacitate_rolls: parseFloat(form.capacitate_rolls)|| 0,
+        util_kg:          parseInt(form.util_kg)           || 0,
+        prioritate:       parseInt(form.prioritate)        || 1,
+        status:           "disponibil",
+      };
+      setVehicles(p => [...p, v]);
+      setNextId(n => n + 1);
+      setForm(EMPTY_FORM);
+    };
+
+    const toggleStatus = (id) =>
+      setVehicles(p => p.map(v => v.id === id
+        ? {
+            ...v,
+            status: v.status === "disponibil" ? "service" : "disponibil",
+            // La trimitere în service: anulează automat obligativitatea
+            obligatoriu: v.status === "disponibil" ? false : (v.obligatoriu ?? false),
+          }
+        : v));
+
+    const toggleObligatoriu = (id) =>
+      setVehicles(p => p.map(v => v.id === id
+        ? { ...v, obligatoriu: !(v.obligatoriu ?? false) }
+        : v));
+
+    const askDelete  = (id, numar) => setDeleteTarget({ id, numar });
+    const confirmDel = () => { setVehicles(p => p.filter(v => v.id !== deleteTarget.id)); setDeleteTarget(null); };
+    const cancelDel  = () => setDeleteTarget(null);
+
+    const openEdit   = (vehicle) => setEditTarget(vehicle);
+    const cancelEdit = () => setEditTarget(null);
+    const saveEdit   = (updated) => { setVehicles(p => p.map(v => v.id === updated.id ? updated : v)); setEditTarget(null); };
+
+    const today = new Date().toLocaleDateString("ro-RO", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric"
+    });
+
+    return (
+      <div className="flex flex-col h-screen bg-gray-100 overflow-hidden">
+
+        {/* Topbar */}
+        <Topbar />
+
+        {deleteTarget && <ConfirmModal numar={deleteTarget.numar} onConfirm={confirmDel} onCancel={cancelDel} />}
+        {editTarget   && <EditModal vehicle={editTarget} onSave={saveEdit} onCancel={cancelEdit} />}
+
+        {/* Body: sidebar + content */}
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar />
+
+          {/* Main content */}
+          <main className="flex-1 overflow-y-auto p-6 bg-gray-100">
+
+            {/* ── Header card ── */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h1 className="text-xl font-extrabold text-gray-900 tracking-tight">
+                    Gestionare flotă
+                    <span className="ml-2 text-teal-600">Auto</span>
+                  </h1>
+                  <p className="text-xs text-gray-400 mt-1 capitalize">{today} · HUB PLOIEȘTI</p>
+                </div>
+                <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white
+                                   text-xs font-bold hover:bg-gray-800 transition-colors shadow-sm">
+                  <span>📥</span> Importă CSV/XLSX
+                </button>
+              </div>
+
+              {/* Stats */}
+              <div className="flex gap-4 flex-wrap">
+                <StatsCard label="Total auto"    value={total}       color="teal"   />
+                <StatsCard label="Oraș (< 3.5T)" value={oras}        color="yellow" />
+                <StatsCard label="Disponibile"   value={disponibile} color="green"  />
+              </div>
+            </div>
+
+            {/* ── Șoferi activi ── */}
+            <DriversPanel
+              drivers={drivers}
+              onToggle={toggleDriver}
+              onRename={renameDriver}
+              onAdd={addDriver}
+            />
+
+            {/* ── Content grid ── */}
+            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+
+              {/* Form — col 1 */}
+              <div className="xl:col-span-1">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sticky top-0">
+                  <div className="flex items-center gap-2 mb-5">
+                    <div className="w-1 h-5 bg-teal-500 rounded-full" />
+                    <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">
+                      Adăugare manuală
+                    </h2>
+                  </div>
+
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+                    {/* Sugestii tip vehicul */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Tip vehicul
+                      </label>
+                      <div className="flex flex-col gap-2">
+                        {VEHICLE_PRESETS.map(preset => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => applyPreset(preset)}
+                            className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 text-left transition-all
+                              ${form.denumire.startsWith(preset.label)
+                                ? "border-teal-400 bg-teal-50 text-teal-700"
+                                : "border-gray-200 bg-gray-50 text-gray-600 hover:border-teal-300 hover:bg-teal-50/50"
+                              }`}
+                          >
+                            <span className="text-xl">{preset.icon}</span>
+                            <div>
+                              <p className="text-xs font-bold leading-tight">{preset.label}</p>
+                              <p className="text-[10px] text-gray-400 leading-tight mt-0.5">
+                                EP:{preset.defaults.capacitate_ep} · D60:{preset.defaults.capacitate_d60} · {preset.defaults.util_kg}kg
+                              </p>
+                            </div>
+                            {form.denumire.startsWith(preset.label) && (
+                              <span className="ml-auto text-teal-500">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+                                     stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* ID auto-generat */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                        ID / Număr auto *
+                        {form.numar && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-600 normal-case tracking-normal">
+                            auto
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        type="text"
+                        value={form.numar}
+                        onChange={field("numar")}
+                        placeholder="ex: PH99XYZ"
+                        className="border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-800
+                                   focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent
+                                   placeholder-gray-300 transition-all font-mono"
+                      />
+                    </div>
+
+                    {/* Denumire */}
+                    <FormInput label="Denumire" value={form.denumire} onChange={field("denumire")} placeholder="ex: Camion Mic 3" />
+
+                    <FormInput label="MMA (CIV)"           value={form.mma}              onChange={field("mma")}              placeholder="5000"  type="number" min="0" />
+                    <FormInput label="Capacitate EP"       value={form.capacitate_ep}    onChange={field("capacitate_ep")}    placeholder="8"     type="number" min="0" />
+                    <FormInput label="Capacitate D60"      value={form.capacitate_d60}   onChange={field("capacitate_d60")}   placeholder="16"    type="number" min="0" />
+                    <FormInput label="Capacitate ROLLS"    value={form.capacitate_rolls} onChange={field("capacitate_rolls")} placeholder="15"    type="number" min="0" />
+                    <FormInput label="UTIL KG"             value={form.util_kg}          onChange={field("util_kg")}          placeholder="3000"  type="number" min="0" />
+                    <FormInput label="Prioritate"          value={form.prioritate}       onChange={field("prioritate")}       placeholder="1"     type="number" min="1" />
+
+                    {formError && (
+                      <p className="text-xs text-red-500 font-semibold -mt-1 flex items-center gap-1">
+                        <span>⚠️</span> {formError}
+                      </p>
+                    )}
+
+                    <button type="submit"
+                      className="w-full py-2.5 rounded-xl bg-teal-600 text-white font-bold text-sm
+                                 hover:bg-teal-700 active:bg-teal-800 transition-colors shadow-sm mt-1">
+                      + Adaugă auto
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Cards — cols 2-4 */}
+              <div className="xl:col-span-3">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-5 bg-teal-500 rounded-full" />
+                    <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">
+                      Flotă existentă
+                    </h2>
+                  </div>
+                  <span className="text-xs text-gray-400 font-medium">
+                    {vehicles.length} vehicul{vehicles.length !== 1 ? "e" : ""}
+                  </span>
+                </div>
+
+                {vehicles.length === 0 ? (
+                  <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-20 text-center">
+                    <p className="text-5xl mb-4">🚚</p>
+                    <p className="font-extrabold text-gray-700 text-lg">Flota este goală</p>
+                    <p className="text-sm text-gray-400 mt-2">Adaugă manual sau importă CSV/XLSX</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                    {vehicles.map(v => (
+                      <VehicleCard
+                        key={v.id}
+                        vehicle={v}
+                        onToggleStatus={toggleStatus}
+                        onToggleObligatoriu={toggleObligatoriu}
+                        onEdit={openEdit}
+                        onDelete={(id) => askDelete(id, v.numar)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // MOUNT
+  // ============================================================
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

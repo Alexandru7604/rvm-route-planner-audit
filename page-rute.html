@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RVM Logistics – Rute</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: {
+        fontFamily: { inter:['Inter','sans-serif'] },
+        colors: { teal:{50:'#F0FDFA',100:'#CCFBF1',200:'#99F6E4',400:'#2DD4BF',500:'#14B8A6',600:'#0D9488',700:'#0F766E',800:'#115E59',900:'#134E4A'} }
+      }}
+    }
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { font-family:'Inter',sans-serif; }
+    body { margin:0; }
+    ::-webkit-scrollbar { width:4px; height:4px; }
+    ::-webkit-scrollbar-track { background:#F3F4F6; }
+    ::-webkit-scrollbar-thumb { background:#D1D5DB; border-radius:10px; }
+    .leaflet-control-attribution { display:none !important; }
+  </style>
+</head>
+<body class="bg-gray-50">
+<div id="root"></div>
+<script type="text/babel">
+
+// ─────────────────────────────────────────────
+// DATE & CONSTANTE
+// ─────────────────────────────────────────────
+const DEPOT_COORDS = { lat:44.9395942, lng:26.0575523 };
+const STORES_DEFAULT = [
+  { id:1,  cod:"000832", denumire:"C PLOIESTI (BILLA VEST)",  localitate:"Ploiești",           distanta_km:8,  prioritate_auto:"7 > 6 > 5 > 4 > 3 > 2 > 1" },
+  { id:2,  cod:"000083", denumire:"S PLOIEȘTI 2",              localitate:"Ploiești",           distanta_km:3,  prioritate_auto:"1 > 2"                       },
+  { id:3,  cod:"000097", denumire:"S PLOIEȘTI 3",              localitate:"Ploiești",           distanta_km:4,  prioritate_auto:"7 > 6 > 5 > 4 > 3 > 2 > 1" },
+  { id:4,  cod:"000128", denumire:"S PLOIEȘTI 4",              localitate:"Ploiești",           distanta_km:5,  prioritate_auto:"1 > 2 > 3"                  },
+  { id:5,  cod:"000161", denumire:"S PLOIEȘTI 6",              localitate:"Ploiești",           distanta_km:7,  prioritate_auto:"1 > 2 > 3"                  },
+  { id:6,  cod:"000374", denumire:"EXPRESS PLOIEȘTI DOJA",     localitate:"Ploiești",           distanta_km:3,  prioritate_auto:"1 > 2"                       },
+  { id:7,  cod:"000886", denumire:"IC SINAIA",                 localitate:"Sinaia",             distanta_km:70, prioritate_auto:"5 > 4 > 3"                  },
+  { id:8,  cod:"000202", denumire:"S BAICOI",                  localitate:"Băicoi",             distanta_km:26, prioritate_auto:"7 > 6 > 5 > 4"              },
+  { id:9,  cod:"000230", denumire:"S VALEA CALUGAREASCA",      localitate:"Valea Călugăreasca", distanta_km:16, prioritate_auto:"7 > 6 > 5 > 4"              },
+  { id:10, cod:"000214", denumire:"S BOLDEȘTI SCĂIENI",        localitate:"Boldești-Scăeni",    distanta_km:16, prioritate_auto:"7 > 6 > 5 > 4"              },
+  { id:11, cod:"000060", denumire:"CAMPINA SUPER",             localitate:"Câmpina",            distanta_km:40, prioritate_auto:"5 > 4 > 3"                  },
+];
+
+function loadStores() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('rvm_stores') || 'null');
+    if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+  } catch(e) {}
+  return STORES_DEFAULT;
+}
+const STORES = loadStores();
+
+// Parsează "7 > 6 > 5 > 4" → [7,6,5,4] (ordinea = prioritatea)
+function parseAllowedPrio(prioritate_auto) {
+  if (!prioritate_auto) return null;
+  const arr = prioritate_auto.split('>').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+  return arr.length > 0 ? arr : null;
+}
+const STORE_COORDS = {
+  1:{lat:44.9254,lng:25.9954}, 2:{lat:44.9412,lng:26.0209}, 3:{lat:44.9262,lng:26.0299},
+  4:{lat:44.9535,lng:25.9970}, 5:{lat:44.9350,lng:26.0650}, 6:{lat:44.9468,lng:26.0150},
+  7:{lat:45.3497,lng:25.5491}, 8:{lat:45.0337,lng:25.8494}, 9:{lat:44.9612,lng:26.1500},
+  10:{lat:45.0326,lng:26.0271},11:{lat:45.1241,lng:25.7360},
+};
+// Date vehicule din talonul mașinii (sursă de adevăr = page-autovehicule.html)
+const FLEET_DEFAULT = [
+  { id:1, numar:"PH26RVM", denumire:"Camion Mic 1",   mma:5000,  capacitate_ep:8,  capacitate_d60:16, capacitate_rolls:12, util_kg:3000,  prioritate:1, status:"disponibil", obligatoriu:false },
+  { id:2, numar:"PH41RVM", denumire:"Camion Mic 2",   mma:5000,  capacitate_ep:8,  capacitate_d60:16, capacitate_rolls:12, util_kg:3000,  prioritate:2, status:"service",    obligatoriu:false },
+  { id:3, numar:"PH58RVM", denumire:"Camion Mediu 1", mma:5000,  capacitate_ep:10, capacitate_d60:20, capacitate_rolls:15, util_kg:3000,  prioritate:3, status:"disponibil", obligatoriu:false },
+  { id:4, numar:"PH73RVM", denumire:"Camion Mediu 2", mma:7200,  capacitate_ep:10, capacitate_d60:20, capacitate_rolls:15, util_kg:4000,  prioritate:4, status:"disponibil", obligatoriu:false },
+  { id:5, numar:"B791RVM", denumire:"Camion Mare 1",  mma:7200,  capacitate_ep:12, capacitate_d60:24, capacitate_rolls:18, util_kg:4200,  prioritate:5, status:"disponibil", obligatoriu:false },
+  { id:6, numar:"PH93RVM", denumire:"Camion Mare 2",  mma:7500,  capacitate_ep:13, capacitate_d60:26, capacitate_rolls:19, util_kg:4200,  prioritate:6, status:"service",    obligatoriu:false },
+  { id:7, numar:"PH15COX", denumire:"TIR 1",          mma:20000, capacitate_ep:20, capacitate_d60:40, capacitate_rolls:30, util_kg:10000, prioritate:7, status:"disponibil", obligatoriu:false },
+];
+
+function loadFleet() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('rvm_fleet') || 'null');
+    if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+  } catch(e) {}
+  return FLEET_DEFAULT;
+}
+// Doar vehiculele disponibile, sortate după prioritate
+const FLEET = loadFleet()
+  .filter(v => v.status === 'disponibil')
+  .sort((a,b) => a.prioritate - b.prioritate);
+const FALLBACK_ORDERS = [
+  { id:1,  cod:"000832", magazin:"C PLOIESTI (BILLA VEST)",  d60:8,  rolls:0,  kg:2890, prioritate:3, activ:true, ambient_pal:7,    fresh_pal:5,    apls_pal:5    },
+  { id:2,  cod:"000083", magazin:"S PLOIEȘTI 2",              d60:10, rolls:3,  kg:4356, prioritate:3, activ:true, ambient_pal:5,    fresh_pal:3,    apls_pal:5    },
+  { id:3,  cod:"000097", magazin:"S PLOIEȘTI 3",              d60:10, rolls:0,  kg:3500, prioritate:3, activ:true, ambient_pal:5,    fresh_pal:4,    apls_pal:4    },
+  { id:4,  cod:"000128", magazin:"S PLOIEȘTI 4",              d60:9,  rolls:0,  kg:3200, prioritate:3, activ:true, ambient_pal:4,    fresh_pal:2,    apls_pal:2    },
+  { id:5,  cod:"000161", magazin:"S PLOIEȘTI 6",              d60:9,  rolls:2,  kg:3800, prioritate:3, activ:true, ambient_pal:5,    fresh_pal:3,    apls_pal:3    },
+  { id:6,  cod:"000374", magazin:"EXPRESS PLOIEȘTI DOJA",     d60:4,  rolls:0,  kg:1400, prioritate:3, activ:true, ambient_pal:0,    fresh_pal:1,    apls_pal:2    },
+  { id:7,  cod:"000886", magazin:"IC SINAIA",                 d60:0,  rolls:18, kg:3245, prioritate:1, activ:true, ambient_pal:4.67, fresh_pal:2.67, apls_pal:3.34 },
+  { id:8,  cod:"000202", magazin:"S BAICOI",                  d60:7,  rolls:0,  kg:2450, prioritate:2, activ:true, ambient_pal:4.5,  fresh_pal:1,    apls_pal:3    },
+  { id:9,  cod:"000230", magazin:"S VALEA CALUGAREASCA",      d60:5,  rolls:0,  kg:1750, prioritate:2, activ:true, ambient_pal:4,    fresh_pal:0.5,  apls_pal:2    },
+  { id:10, cod:"000214", magazin:"S BOLDEȘTI SCĂIENI",        d60:6,  rolls:0,  kg:2100, prioritate:2, activ:true, ambient_pal:3.5,  fresh_pal:1,    apls_pal:3    },
+  { id:11, cod:"000060", magazin:"CAMPINA SUPER",             d60:10, rolls:0,  kg:3500, prioritate:4, activ:true, ambient_pal:5,    fresh_pal:3,    apls_pal:4    },
+];
+const COLORS = [
+  { main:'#0D9488', light:'#F0FDFA', text:'#0F766E', border:'#5EEAD4' },
+  { main:'#6366F1', light:'#EEF2FF', text:'#4338CA', border:'#A5B4FC' },
+  { main:'#F59E0B', light:'#FFFBEB', text:'#92400E', border:'#FCD34D' },
+  { main:'#EF4444', light:'#FEF2F2', text:'#991B1B', border:'#FCA5A5' },
+  { main:'#8B5CF6', light:'#F5F3FF', text:'#5B21B6', border:'#C4B5FD' },
+  { main:'#10B981', light:'#ECFDF5', text:'#065F46', border:'#6EE7B7' },
+];
+const NAV_ITEMS = [
+  {label:"Planificare", icon:"📋", href:"page-planificare.html" },
+  {label:"Comenzi",     icon:"📦", href:"page-comenzi.html"    },
+  {label:"Rute",        icon:"🗺️", href:"page-rute.html",       active:true},
+  {label:"Auto",        icon:"🚚", href:"page-autovehicule.html"},
+  {label:"Magazine",    icon:"🏪", href:"page-magazine.html"   },
+  {label:"Utilizatori", icon:"👥", href:"page-utilizatori.html"},
+  {label:"Huburi",      icon:"🏭", href:"page-huburi.html"     },
+];
+const TODAY_DOW = new Date().getDay();
+const DOW_LBL   = ["Duminică","Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă"];
+
+// ─────────────────────────────────────────────
+// ALGORITM VRP
+// ─────────────────────────────────────────────
+const LOAD_MIN=30, UNLOAD_MIN=30, START_MIN=360;
+const r2=(v)=>Math.round(v*100)/100;
+const EP2D60=2; // 1 EP (120×80cm) = 2 D60 (60×40cm)
+const toD60=(ep)=>r2((ep||0)*EP2D60);
+
+function haversineKm(c1,c2){
+  const R=6371,r=d=>d*Math.PI/180,dLat=r(c2.lat-c1.lat),dLon=r(c2.lng-c1.lng);
+  const a=Math.sin(dLat/2)**2+Math.cos(r(c1.lat))*Math.cos(r(c2.lat))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+const roadKm=(c1,c2)=>haversineKm(c1,c2)*1.35;
+const travelMin=km=>km<8?Math.round(km/28*60):km<30?Math.round(km/45*60):Math.round(km/65*60);
+const minHHMM=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+const getStore=cod=>STORES.find(s=>s.cod===cod);
+const getCoords=cod=>{const s=getStore(cod);return s?STORE_COORDS[s.id]:null;};
+
+// ─────────────────────────────────────────────
+// VRP ENGINE v2 — MOTOR MODULAR DE PLANIFICARE
+// ─────────────────────────────────────────────
+
+// 1. Normalizează comenzile — adaugă câmpuri interne _d60 / _rolls / _kg
+function parseAndNormalizeOrders(rawOrders) {
+  return rawOrders.map(o => ({
+    ...o,
+    _d60:   o.d60   || 0,
+    _rolls: o.rolls || 0,
+    _kg:    o.kg    || 0,
+  }));
+}
+
+// 2. Selectează vehiculele active pentru ziua curentă
+// Regula al 5-lea șofer: la nrSoferi≥5 se activează PH15COX (TIR)
+function getAvailableVehicles(fleet, nrSoferi) {
+  return [...fleet].sort((a,b) => a.prioritate - b.prioritate).slice(0, nrSoferi);
+}
+
+// 3. Vehiculele permise pentru un magazin, în ordinea preferinței din prioritate_auto
+function getAllowedVehiclesForStore(storeCod, vehicles) {
+  const store   = getStore(storeCod);
+  const allowed = parseAllowedPrio(store?.prioritate_auto);
+  if (!allowed) return vehicles;
+  return vehicles
+    .filter(v => allowed.includes(v.prioritate))
+    .sort((a,b) => allowed.indexOf(a.prioritate) - allowed.indexOf(b.prioritate));
+}
+
+// 4. Verifică dacă o comandă încape fizic în cursa curentă (toate 4 dimensiuni)
+function canFit(order, usedD60, usedRolls, usedKg, vehicle) {
+  const oD60   = order._d60   ?? (order.d60   || 0);
+  const oRolls = order._rolls ?? (order.rolls || 0);
+  const oKg    = order._kg    ?? (order.kg    || 0);
+  return (
+    usedD60  + oD60   <= vehicle.capacitate_d60 &&
+    (vehicle.capacitate_rolls === 0 || usedRolls + oRolls <= vehicle.capacitate_rolls) &&
+    usedKg   + oKg    <= vehicle.util_kg
+  );
+}
+
+// 5. Index de dificultate al comenzii (0‥1) — ponderat D60 40% + KG 40% + Rolls 20%
+function calculateLoadIndex(order, refVehicle) {
+  const v      = refVehicle || { capacitate_d60:20, capacitate_rolls:15, util_kg:4000 };
+  const d60r   = (order._d60   ?? order.d60   ?? 0) / v.capacitate_d60;
+  const rollsr = v.capacitate_rolls > 0
+    ? (order._rolls ?? order.rolls ?? 0) / v.capacitate_rolls : 0;
+  const kgr    = (order._kg ?? order.kg ?? 0) / v.util_kg;
+  return r2(kgr*0.4 + d60r*0.4 + rollsr*0.2);
+}
+
+// 6. Scor inserție stop (mai mic = mai bun)
+// Factori: distanță față de poziția curentă + rang prioritate magazin + penalizare umplere
+function scoreStopInsertion(vehicle, usedD60, usedRolls, usedKg, lastPos, order) {
+  const c = getCoords(order.cod);
+  if (!c) return 9999;
+  const store     = getStore(order.cod);
+  const allowed   = parseAllowedPrio(store?.prioritate_auto);
+  const prioRank  = allowed ? Math.max(0, allowed.indexOf(vehicle.prioritate)) : 0;
+  const dist      = roadKm(lastPos || DEPOT_COORDS, c);
+  const remD60    = vehicle.capacitate_d60 - usedD60;
+  const fillPenalty = remD60 > 0
+    ? Math.max(0, 1 - (order._d60||order.d60||0) / remD60) * 3 : 5;
+  return dist + prioRank * 12 + fillPenalty;
+}
+
+// 7. Construiește cursele (trips) pentru un vehicul din lista sa de comenzi
+function buildTripsForVehicle(vehicle, vehicleOrders, debugLog) {
+  const trips    = [];
+  let   rem      = [...vehicleOrders];
+  const capD60   = vehicle.capacitate_d60;
+  const capRolls = vehicle.capacitate_rolls || 0;
+  const capKg    = vehicle.util_kg;
+
+  while (rem.length > 0) {
+    const stops = [];
+    let d60=0, rolls=0, kg=0, pos=DEPOT_COORDS;
+
+    // Inserție greedy bazată pe scor
+    while (rem.length > 0) {
+      let bestIdx=-1, bestScore=Infinity;
+      for (let i=0; i<rem.length; i++) {
+        const o = rem[i];
+        if (!canFit(o, d60, rolls, kg, vehicle)) continue;
+        const s = scoreStopInsertion(vehicle, d60, rolls, kg, pos, o);
+        if (s < bestScore) { bestScore=s; bestIdx=i; }
+      }
+      if (bestIdx === -1) break;
+      const o = rem.splice(bestIdx, 1)[0];
+      d60   += (o._d60  ||o.d60  ||0);
+      rolls += (o._rolls||o.rolls||0);
+      kg    += (o._kg   ||o.kg   ||0);
+      const coords = getCoords(o.cod);
+      stops.push({ order:o, store:getStore(o.cod), coords });
+      pos = coords || pos;
+    }
+
+    // Fallback: forțează prima comandă rămasă (înregistrează în debug)
+    if (stops.length===0 && rem.length>0) {
+      const o = rem.shift();
+      d60   += (o._d60  ||o.d60  ||0);
+      rolls += (o._rolls||o.rolls||0);
+      kg    += (o._kg   ||o.kg   ||0);
+      stops.push({ order:o, store:getStore(o.cod), coords:getCoords(o.cod) });
+      if (debugLog) debugLog.push(explainAssignmentDecision(
+        o, vehicle, 9999, 'FORȚAT — nu încape în nicio cursă disponibilă'));
+    }
+
+    if (stops.length > 0) {
+      const overloaded = d60>capD60 || (capRolls>0 && rolls>capRolls) || kg>capKg;
+      trips.push({ stops, usedD60:d60, usedRolls:rolls, usedKg:kg,
+                   capD60, capRolls, capKg, overloaded });
+    }
+  }
+  return trips;
+}
+
+// 8. Distribuie comenzile pe flotă (atribuire principală)
+function assignOrdersAcrossFleet(normalizedOrders, vehicles, debugLog) {
+  // Sortare: prioritate magazin ASC, apoi load-index DESC (cele mai grele prime)
+  const sorted = [...normalizedOrders].sort((a,b) => {
+    if (a.prioritate !== b.prioritate) return a.prioritate - b.prioritate;
+    return calculateLoadIndex(b) - calculateLoadIndex(a);
+  });
+
+  const state = vehicles.map(v => ({ vehicle:v, orders:[], totalLoad:0 }));
+
+  for (const o of sorted) {
+    const store   = getStore(o.cod);
+    const allowed = parseAllowedPrio(store?.prioritate_auto);
+
+    // Candidați: vehicule permise pentru magazin
+    let candidates = state.filter(s =>
+      allowed === null || allowed.includes(s.vehicle.prioritate));
+    if (candidates.length === 0) candidates = [...state]; // fallback complet
+
+    // Preferă vehiculele care pot fizic transporta întreaga comandă
+    const capable = candidates.filter(s =>
+      (o._d60  ||o.d60  ||0) <= s.vehicle.capacitate_d60 &&
+      (o._rolls||o.rolls||0) <= (s.vehicle.capacitate_rolls||0) &&
+      (o._kg   ||o.kg   ||0) <= s.vehicle.util_kg);
+    const pool = capable.length > 0 ? capable : candidates;
+
+    // Scor atribuire: echilibru sarcină + rang prioritate × cost mediu
+    const dist    = roadKm(DEPOT_COORDS, getCoords(o.cod)||DEPOT_COORDS);
+    const avgCost = travelMin(dist)*2 + UNLOAD_MIN;
+    pool.sort((a,b) => {
+      const rA = allowed ? Math.max(0, allowed.indexOf(a.vehicle.prioritate)) : 0;
+      const rB = allowed ? Math.max(0, allowed.indexOf(b.vehicle.prioritate)) : 0;
+      return (a.totalLoad + rA*avgCost) - (b.totalLoad + rB*avgCost);
+    });
+
+    const w    = pool[0];
+    const rank = allowed ? allowed.indexOf(w.vehicle.prioritate) : -1;
+    w.orders.push(o);
+    w.totalLoad += avgCost;
+
+    if (debugLog) debugLog.push(explainAssignmentDecision(
+      o, w.vehicle, rank,
+      `rang=${rank} · load=${r2(w.totalLoad)} · ${capable.length>0?'capabil':'FORȚAT'}`));
+  }
+  return state;
+}
+
+// 9. Rebalansare — mută comenzi de pe vehiculele supraîncărcate pe cele ușoare
+function rebalanceTrips(assignments, debugLog) {
+  for (let pass=0; pass<5; pass++) {
+    const byLoad = [...assignments].sort((a,b)=>b.orders.length-a.orders.length);
+    const heavy  = byLoad[0];
+    const light  = byLoad[byLoad.length-1];
+    if (heavy===light || heavy.orders.length - light.orders.length < 2) break;
+
+    let moved = false;
+    for (let k=heavy.orders.length-1; k>=0; k--) {
+      const o       = heavy.orders[k];
+      const store   = getStore(o.cod);
+      const allowed = parseAllowedPrio(store?.prioritate_auto);
+      if (allowed && !allowed.includes(light.vehicle.prioritate)) continue;
+      if ((o._d60  ||o.d60  ||0) > light.vehicle.capacitate_d60)          continue;
+      if ((o._rolls||o.rolls||0) > (light.vehicle.capacitate_rolls||0))    continue;
+      if ((o._kg   ||o.kg   ||0) > light.vehicle.util_kg)                  continue;
+
+      heavy.orders.splice(k, 1);
+      light.orders.push(o);
+      if (debugLog) debugLog.push({
+        magazin: o.magazin, vehicul: light.vehicle.numar, d60:null, rolls:null, kg:null, score:null,
+        motiv: `Rebalansare: mutat de la ${heavy.vehicle.numar} → ${light.vehicle.numar}` });
+      moved = true;
+      break;
+    }
+    if (!moved) break;
+  }
+  return assignments;
+}
+
+// 10. Sumar execuție zilnică
+function summarizeDailyPlan(routes) {
+  return {
+    totalKm:         r2(routes.reduce((s,r)=>s+r.totalKm,0)),
+    totalTrips:      routes.reduce((s,r)=>s+r.trips.length,0),
+    totalOrders:     routes.reduce((s,r)=>s+r.orderCount,0),
+    lateVehicles:    routes.filter(r=>r.finishMin>840).length,
+    overloadedTrips: routes.reduce((s,r)=>s+r.trips.filter(t=>t.overloaded).length,0),
+  };
+}
+
+// 11. Generează înregistrare de debug pentru o decizie de atribuire
+function explainAssignmentDecision(order, vehicle, score, motiv) {
+  return {
+    magazin: order.magazin || order.cod,
+    vehicul: vehicle.numar,
+    d60:     order._d60   ?? order.d60   ?? 0,
+    rolls:   order._rolls ?? order.rolls ?? 0,
+    kg:      order._kg    ?? order.kg    ?? 0,
+    score:   r2(score) || 0,
+    motiv,
+  };
+}
+
+// ─────────────────────────────────────────────
+// COMBINATORICĂ — toate submulțimile de k vehicule
+// ─────────────────────────────────────────────
+
+// Generează toate combinațiile de k vehicule din fleet
+function generateCombinations(fleet, k) {
+  const result = [];
+  function pick(start, combo) {
+    if (combo.length === k) { result.push([...combo]); return; }
+    for (let i=start; i<fleet.length; i++) {
+      combo.push(fleet[i]);
+      pick(i+1, combo);
+      combo.pop();
+    }
+  }
+  pick(0, []);
+  return result;
+}
+
+// Scor plan (mai mic = mai bun)
+// Penalizări: depășiri capacitate > întârzieri > vehicule goale > km total
+function scorePlan(routes) {
+  const overloaded = routes.reduce((s,r)=>s+r.trips.filter(t=>t.overloaded).length, 0);
+  const late       = routes.filter(r=>r.finishMin>840).length;
+  const empty      = routes.filter(r=>r.orderCount===0).length;
+  const km         = routes.reduce((s,r)=>s+r.totalKm, 0);
+  return overloaded*100000 + late*10000 + empty*5000 + km;
+}
+
+// ─────────────────────────────────────────────
+// CONSTRUIRE RUTE DIN ATRIBUIRI (helper reutilizabil)
+// ─────────────────────────────────────────────
+function buildRoutesFromAssignments(assignments, debugLog) {
+  return assignments.map((asgn, di) => {
+    const trips = buildTripsForVehicle(asgn.vehicle, asgn.orders, debugLog);
+
+    let cur = START_MIN + LOAD_MIN;
+    for (let t=0; t<trips.length; t++) {
+      const trip = trips[t];
+      trip.tripNumber    = t+1;
+      trip.departureMin  = cur;
+      let pos=DEPOT_COORDS, km=0;
+      for (const stop of trip.stops) {
+        const d  = roadKm(pos, stop.coords||DEPOT_COORDS);
+        const tm = travelMin(d);
+        km += d;
+        stop.travelKm     = r2(d);
+        stop.travelMin    = tm;
+        stop.arrivalMin   = cur+tm;
+        stop.departureMin = stop.arrivalMin+UNLOAD_MIN;
+        cur = stop.departureMin;
+        pos = stop.coords||pos;
+      }
+      const ret = roadKm(pos, DEPOT_COORDS);
+      km += ret;
+      trip.returnKm        = r2(ret);
+      trip.returnMin       = travelMin(ret);
+      trip.arrivalDepotMin = cur+trip.returnMin;
+      trip.totalKm         = r2(km);
+      cur = trip.arrivalDepotMin;
+      if (t < trips.length-1) cur += LOAD_MIN;
+    }
+
+    const last      = trips[trips.length-1];
+    const allOrders = trips.flatMap(t=>t.stops.map(s=>s.order));
+    return {
+      vehicle:    asgn.vehicle,
+      driverIdx:  di,
+      trips,
+      finishMin:  last?.arrivalDepotMin ?? START_MIN,
+      totalKm:    r2(trips.reduce((s,t)=>s+(t.totalKm||0),0)),
+      orderCount: asgn.orders.length,
+      ambientPal: toD60(allOrders.reduce((s,o)=>s+(o.ambient_pal||0),0)),
+      freshPal:   toD60(allOrders.reduce((s,o)=>s+(o.fresh_pal||0),0)),
+      aplsPal:    toD60(allOrders.reduce((s,o)=>s+(o.apls_pal||0),0)),
+      totalKg:    allOrders.reduce((s,o)=>s+(o.kg||0),0),
+    };
+  });
+}
+
+// ─────────────────────────────────────────────
+// ENTRY POINT — încearcă TOATE combinațiile posibile
+// și returnează cea mai bună { routes, debugLog, summary }
+// ─────────────────────────────────────────────
+function generateRoutes(rawOrders, nrSoferi) {
+  // Pasul 1: Normalizare comenzi
+  const orders = parseAndNormalizeOrders(rawOrders);
+
+  // Pasul 2: Generează combinații respectând vehiculele marcate OBLIGATORIU
+  const k         = Math.min(nrSoferi, FLEET.length);
+  const mandatory = FLEET.filter(v => v.obligatoriu === true);
+  const optional  = FLEET.filter(v => !v.obligatoriu);
+
+  let combos;
+  if (mandatory.length >= k) {
+    // Toate sloturile ocupate de vehicule obligatorii → o singură combinație
+    combos = [mandatory.slice(0, k)];
+  } else {
+    // Completează sloturile rămase cu toate combinațiile posibile din vehiculele opționale
+    const extraNeeded = k - mandatory.length;
+    const optCombos   = generateCombinations(optional, Math.min(extraNeeded, optional.length));
+    combos = optCombos.length > 0
+      ? optCombos.map(c => [...mandatory, ...c])
+      : [mandatory];   // fallback: numai obligatorii dacă nu există suficiente opționale
+  }
+
+  let bestRoutes  = null;
+  let bestScore   = Infinity;
+  let bestLog     = [];
+  let bestCombo   = null;
+
+  // Pasul 3: Evaluează fiecare combinație
+  for (const combo of combos) {
+    const log = [];
+    let asgn = assignOrdersAcrossFleet(orders, combo, log);
+    asgn     = rebalanceTrips(asgn, log);
+    const routes = buildRoutesFromAssignments(asgn, log);
+    const score  = scorePlan(routes);
+    if (score < bestScore) {
+      bestScore  = score;
+      bestRoutes = routes;
+      bestLog    = log;
+      bestCombo  = combo;
+    }
+  }
+
+  // Pasul 4: Construiește log-ul final cu header de selecție
+  const overCount  = bestRoutes.reduce((s,r)=>s+r.trips.filter(t=>t.overloaded).length, 0);
+  const lateCount  = bestRoutes.filter(r=>r.finishMin>840).length;
+  const totalKm    = r2(bestRoutes.reduce((s,r)=>s+r.totalKm, 0));
+  const debugLog   = [
+    {
+      magazin: '── FLOTĂ OPTIMĂ ──',
+      vehicul:  bestCombo ? bestCombo.map(v=>v.numar).join(' · ') : '?',
+      d60: null, rolls: null, kg: null,
+      score: r2(bestScore),
+      motiv: `Selectată din ${combos.length} combinații · score=${r2(bestScore)} · ${overCount} depășiri · ${lateCount} întârzieri · ${totalKm} km`,
+    },
+    ...bestLog,
+  ];
+
+  return { routes: bestRoutes, debugLog, summary: summarizeDailyPlan(bestRoutes) };
+}
+
+function loadFromStorage(){
+  try{const d=JSON.parse(localStorage.getItem('rvm_orders_today')||'null');
+    if(d&&Array.isArray(d.orders)&&d.orders.length>0)return d;}catch(e){}
+  return null;
+}
+
+// ─────────────────────────────────────────────
+// TOPBAR
+// ─────────────────────────────────────────────
+function Topbar(){
+  return(
+    <header className="h-14 flex items-center justify-between px-6 flex-shrink-0 border-b border-blue-900" style={{background:'linear-gradient(135deg, #1E88E5 0%, #1565C0 60%, #0D47A1 100%)'}}>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-extrabold text-sm select-none">R</div>
+          <span className="text-white font-bold text-sm tracking-wide">RVM LOGISTICS</span>
+          <span className="text-blue-300 text-sm font-light">|</span>
+          <span className="text-blue-200 text-xs">v1 Planner</span>
+        </div>
+        <div className="h-5 w-px bg-blue-400 mx-1"/>
+        <select className="text-xs px-3 py-1.5 rounded-lg border border-blue-400 focus:outline-none cursor-pointer text-white" style={{background:'rgba(255,255,255,0.15)'}}>
+          <option>HUB PLOIEȘTI</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-full bg-teal-700 flex items-center justify-center text-teal-200 text-xs font-bold">A</div>
+          <span className="text-blue-200 text-xs">admin</span>
+        </div>
+        <button className="text-xs px-3 py-1.5 rounded-lg bg-red-900/60 text-red-400 hover:bg-red-800 transition-colors font-semibold border border-red-900">Logout</button>
+      </div>
+    </header>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SIDEBAR
+// ─────────────────────────────────────────────
+function Sidebar(){
+  return(
+    <aside className="w-56 border-r border-blue-900 flex flex-col py-4 gap-1 flex-shrink-0" style={{background:'linear-gradient(180deg, #1E88E5 0%, #1565C0 50%, #0D47A1 100%)'}}>
+      {NAV_ITEMS.map(item=>(
+        <a key={item.label} href={item.href||'#'} style={{textDecoration:'none'}}
+          className={`w-full flex items-center gap-4 py-4 px-6 text-left transition-all relative
+            ${item.active?"text-white bg-white/20":"text-blue-100 hover:text-white hover:bg-white/10"}`}>
+          {item.active&&<span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-10 bg-teal-500 rounded-r-full"/>}
+          <span className="text-2xl leading-none">{item.icon}</span>
+          <span className="text-sm font-semibold tracking-wide">{item.label}</span>
+        </a>
+      ))}
+    </aside>
+  );
+}
+
+// ─────────────────────────────────────────────
+// HARTA FULLSCREEN
+// ─────────────────────────────────────────────
+function MapFullscreen({routes, onClose}){
+  const ref=React.useRef(null),mapRef=React.useRef(null),didFit=React.useRef(false);
+
+  React.useEffect(()=>{
+    if(!ref.current||!window.L)return;
+    const L=window.L;
+    const map=L.map(ref.current,{center:[DEPOT_COORDS.lat,DEPOT_COORDS.lng],zoom:10});
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);
+    L.marker([DEPOT_COORDS.lat,DEPOT_COORDS.lng],{icon:L.divIcon({
+      html:`<div style="background:#EA580C;color:#fff;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border:2.5px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.4)">🏭</div>`,
+      className:'',iconSize:[36,36],iconAnchor:[18,18]})}).addTo(map)
+      .bindPopup('<div style="font-family:Inter"><b>🏭 RAVMANN Depozit</b><br><small>Str. Mihai Bravu 250F, Ploiești</small></div>');
+    mapRef.current=map;
+    setTimeout(()=>{
+      map.invalidateSize();
+      const all=[[DEPOT_COORDS.lat,DEPOT_COORDS.lng]];
+      routes.forEach(r=>r.trips.forEach(t=>t.stops.forEach(s=>{if(s.coords)all.push([s.coords.lat,s.coords.lng]);})));
+      if(all.length>1)map.fitBounds(all,{padding:[50,50]});
+      didFit.current=true;
+    },300);
+    let gi=1;
+    routes.forEach((route,ri)=>{
+      const col=COLORS[ri%COLORS.length].main;
+      route.trips.forEach(trip=>{
+        const pts=[[DEPOT_COORDS.lat,DEPOT_COORDS.lng],...trip.stops.filter(s=>s.coords).map(s=>[s.coords.lat,s.coords.lng]),[DEPOT_COORDS.lat,DEPOT_COORDS.lng]];
+        L.polyline(pts,{color:col,weight:3.5,opacity:.85,lineJoin:'round'}).addTo(map);
+        trip.stops.forEach(stop=>{
+          if(!stop.coords){gi++;return;}
+          const m=L.marker([stop.coords.lat,stop.coords.lng],{icon:L.divIcon({
+            html:`<div style="background:${col};color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:10px;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3)">${gi}</div>`,
+            className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(map);
+          m.bindPopup(`<div style="font-family:Inter;min-width:180px"><b style="color:${col}">${stop.store?.denumire||stop.order.magazin}</b><hr style="margin:5px 0;border-color:#eee"><span style="font-size:11px">🚗 Sosire: <b>${minHHMM(stop.arrivalMin)}</b></span><br><span style="font-size:11px">📦 Plecare: <b>${minHHMM(stop.departureMin)}</b></span><br><span style="font-size:11px">📏 ${stop.travelKm} km · ${stop.travelMin} min</span></div>`);
+          gi++;
+        });
+      });
+    });
+    return()=>{map.remove();mapRef.current=null;didFit.current=false;};
+  },[]);
+
+  return(
+    <div className="fixed inset-0 flex flex-col" style={{zIndex:9999,background:'rgba(0,0,0,.8)'}}>
+      <div className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-gray-700">
+        <div className="flex items-center gap-3">
+          <span className="text-white font-extrabold text-sm">🗺️ Hartă rute — {DOW_LBL[TODAY_DOW]}</span>
+          <div className="flex gap-2">
+            {routes.map((r,i)=>(
+              <span key={i} className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full text-white"
+                style={{background:COLORS[i%COLORS.length].main}}>
+                {r.vehicle.numar}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button onClick={onClose} className="w-8 h-8 rounded-lg bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-white font-bold text-lg transition-colors">×</button>
+      </div>
+      <div ref={ref} style={{flex:1,position:'relative'}}/>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STOP ROW
+// ─────────────────────────────────────────────
+function StopRow({stop, idx, color}){
+  const o=stop.order;
+  return(
+    <div className="border-l-2 ml-2 pl-3 pb-3" style={{borderColor:color+'55'}}>
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded-full flex items-center justify-center text-white font-extrabold text-[9px] flex-shrink-0 -ml-[11px]" style={{background:color}}>{idx}</div>
+        <p className="text-xs font-bold text-gray-800 truncate flex-1">{stop.store?.denumire||o.magazin}</p>
+        <p className="text-xs font-extrabold flex-shrink-0" style={{color}}>{minHHMM(stop.arrivalMin)}</p>
+      </div>
+      <p className="text-[10px] text-gray-400 mt-0.5 ml-4">
+        🚗 {stop.travelMin} min · {stop.travelKm} km &nbsp;·&nbsp; plecare {minHHMM(stop.departureMin)}
+      </p>
+      <div className="flex flex-wrap gap-1 mt-1.5 ml-4">
+        {o.d60>0&&<span className="text-xs font-extrabold px-2.5 py-1 rounded border bg-gray-100 text-gray-700 border-gray-200">D60 · {o.d60}</span>}
+        {o.rolls>0&&<span className="text-xs font-extrabold px-2.5 py-1 rounded border bg-orange-50 text-orange-700 border-orange-200">Rolls · {o.rolls}</span>}
+        {o.ambient_pal>0&&<span className="text-xs font-extrabold px-2.5 py-1 rounded border bg-slate-100 text-slate-700 border-slate-200">Amb · {toD60(o.ambient_pal)}</span>}
+        {o.fresh_pal>0&&<span className="text-xs font-extrabold px-2.5 py-1 rounded border bg-green-50 text-green-700 border-green-200">Fresh · {toD60(o.fresh_pal)}</span>}
+        {o.apls_pal>0&&<span className="text-xs font-extrabold px-2.5 py-1 rounded border bg-purple-50 text-purple-700 border-purple-200">APLS · {toD60(o.apls_pal)}</span>}
+        <span className="text-xs font-semibold px-2.5 py-1 rounded border bg-teal-50 text-teal-700 border-teal-100">{o.kg.toLocaleString("ro-RO")} kg</span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// TRIP CARD
+// ─────────────────────────────────────────────
+function TripCard({trip, color, startIdx}){
+  const[open,setOpen]=React.useState(true);
+  const pct=Math.min(100,Math.round(trip.usedD60/trip.capD60*100));
+  const tAmb=toD60(trip.stops.reduce((s,st)=>s+(st.order.ambient_pal||0),0));
+  const tFresh=toD60(trip.stops.reduce((s,st)=>s+(st.order.fresh_pal||0),0));
+  const tApls=toD60(trip.stops.reduce((s,st)=>s+(st.order.apls_pal||0),0));
+  const tRolls=trip.stops.reduce((s,st)=>s+(st.order.rolls||0),0);
+  const overD60=trip.usedD60>trip.capD60;
+  const overRolls=trip.capRolls>0&&trip.usedRolls>trip.capRolls;
+  const overKg=trip.usedKg>trip.capKg;
+  const hasOverload=trip.overloaded||(overD60||overRolls||overKg);
+  return(
+    <div className={`rounded-xl border mb-2 overflow-hidden ${hasOverload?'border-red-400':''}` } style={hasOverload?{borderColor:'#f87171'}:{borderColor:color+'33'}}>
+      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center gap-2 px-3 py-2 text-left" style={{background:hasOverload?'#fef2f2':color+'15'}}>
+        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md text-white flex-shrink-0" style={{background:hasOverload?'#ef4444':color}}>C{trip.tripNumber}</span>
+        <span className="text-[10px] text-gray-500">{minHHMM(trip.departureMin)} → {minHHMM(trip.arrivalDepotMin)}</span>
+        {hasOverload&&<span className="text-[10px] font-extrabold text-red-600 flex items-center gap-0.5">⚠️ DEPĂȘIRE</span>}
+        <span className="text-[10px] font-bold text-gray-500 ml-auto">{trip.totalKm} km</span>
+        <span className="text-[10px] text-gray-400 ml-1.5">{open?'▲':'▼'}</span>
+      </button>
+      <div className="px-3 py-1.5 flex gap-1.5 flex-wrap border-b" style={{background:hasOverload?'#fff1f2':color+'08',borderColor:hasOverload?'#fca5a5':color+'22'}}>
+        <span className={`text-xs font-bold px-2.5 py-1 rounded border flex items-center gap-1 ${overD60?'bg-red-50 text-red-700 border-red-300':'bg-gray-100 text-gray-600 border-gray-200'}`}>
+          D60 {trip.usedD60}/{trip.capD60}
+          <span className="inline-block" style={{width:24,height:3,background:'#e5e7eb',borderRadius:3,verticalAlign:'middle',position:'relative',display:'inline-block'}}>
+            <span style={{position:'absolute',left:0,top:0,height:'100%',width:`${pct}%`,background:pct>90?'#EF4444':pct>70?'#F59E0B':color,borderRadius:3}}/>
+          </span>
+        </span>
+        {tRolls>0&&<span className={`text-xs font-bold px-2.5 py-1 rounded border flex items-center gap-1 ${trip.usedRolls/trip.capRolls>0.9?'bg-red-50 text-red-700 border-red-200':trip.usedRolls/trip.capRolls>0.7?'bg-orange-50 text-orange-700 border-orange-200':'bg-orange-50 text-orange-700 border-orange-200'}`}>
+          Rolls {trip.usedRolls}/{trip.capRolls}
+          <span className="inline-block" style={{width:24,height:3,background:'#fed7aa',borderRadius:3,position:'relative',display:'inline-block'}}>
+            <span style={{position:'absolute',left:0,top:0,height:'100%',width:`${Math.min(100,Math.round(trip.usedRolls/trip.capRolls*100))}%`,background:trip.usedRolls/trip.capRolls>0.9?'#EF4444':'#F97316',borderRadius:3}}/>
+          </span>
+        </span>}
+        {tAmb>0&&<span className="text-xs font-bold px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">Amb {tAmb}</span>}
+        {tFresh>0&&<span className="text-xs font-bold px-2.5 py-1 rounded bg-green-50 text-green-700 border border-green-200">Fresh {tFresh}</span>}
+        {tApls>0&&<span className="text-xs font-bold px-2.5 py-1 rounded bg-purple-50 text-purple-700 border border-purple-200">APLS {tApls}</span>}
+        <span className={`text-xs font-bold px-2.5 py-1 rounded border ${overKg?'bg-red-50 text-red-700 border-red-300':'bg-teal-50 text-teal-700 border-teal-100'}`}>{trip.usedKg.toLocaleString("ro-RO")}/{trip.capKg.toLocaleString("ro-RO")} kg</span>
+      </div>
+      {open&&<div className="px-3 pt-2 pb-1 bg-white">
+        {trip.stops.map((s,i)=><StopRow key={s.order.id} stop={s} idx={startIdx+i} color={color}/>)}
+        <div className="flex items-center gap-2 ml-2 mt-0.5 text-[10px] text-gray-400 font-semibold pb-1.5">
+          <span className="text-xs">🏭</span>
+          <span>Retur depozit</span>
+          <span className="ml-auto font-bold text-gray-700">{minHHMM(trip.arrivalDepotMin)}</span>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ROUTE CARD
+// ─────────────────────────────────────────────
+function RouteCard({route}){
+  const col=COLORS[route.driverIdx%COLORS.length];
+  const isLate=route.finishMin>840;
+  let gi=1;
+  return(
+    <div className="flex-shrink-0 w-[310px] flex flex-col rounded-2xl border-2 overflow-hidden shadow-sm"
+      style={{borderColor:col.main, height:'100%'}}>
+      <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0" style={{background:col.light}}>
+        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-sm shadow" style={{background:col.main}}>
+          {route.driverIdx+1}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-extrabold text-sm tracking-widest" style={{color:col.text}}>{route.vehicle.numar}</p>
+          <p className="text-[10px] text-gray-500">{route.vehicle.denumire}</p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className={`text-sm font-extrabold ${isLate?'text-red-600':'text-gray-800'}`}>{minHHMM(route.finishMin)}</p>
+          <p className="text-[10px] text-gray-400">{route.totalKm} km · {route.trips.length} curs{route.trips.length!==1?'e':'ă'}</p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-3 bg-white">
+        {route.trips.map(trip=>{
+          const card=<TripCard key={trip.tripNumber} trip={trip} color={col.main} startIdx={gi}/>;
+          gi+=trip.stops.length; return card;
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// TABEL SUMAR
+// ─────────────────────────────────────────────
+function SummaryTable({routes}){
+  if(!routes.length)return null;
+  const totKm    = r2(routes.reduce((s,r)=>s+r.totalKm,0));
+  const totCurse = routes.reduce((s,r)=>s+r.trips.length,0);
+  const totAmb   = r2(routes.reduce((s,r)=>s+r.ambientPal,0));
+  const totFresh = r2(routes.reduce((s,r)=>s+r.freshPal,0));
+  const totApls  = r2(routes.reduce((s,r)=>s+r.aplsPal,0));
+  const totKg    = routes.reduce((s,r)=>s+r.totalKg,0);
+  const totDep   = routes.reduce((s,r)=>s+Math.max(0,r.finishMin-840),0);
+
+  const TH=({c,ch})=><th className={`px-3 py-2.5 text-[10px] font-extrabold uppercase tracking-widest whitespace-nowrap ${c||'text-gray-500'}`}>{ch}</th>;
+  const TD=({c,ch,bold})=><td className={`px-3 py-2.5 text-xs whitespace-nowrap ${bold?'font-extrabold':'font-semibold'} ${c||'text-gray-700'}`}>{ch}</td>;
+
+  return(
+    <div className="flex-shrink-0 border-t border-gray-200 bg-white shadow-[0_-4px_16px_rgba(0,0,0,.06)]">
+      <div className="flex items-center gap-2 px-5 py-2.5 border-b border-gray-100">
+        <div className="w-1 h-4 bg-teal-500 rounded-full"/>
+        <span className="text-[10px] font-extrabold text-gray-500 uppercase tracking-widest">Sumar execuție zilnică</span>
+        <span className="ml-2 text-[10px] text-gray-400">· {routes.length} vehicule active · {DOW_LBL[TODAY_DOW]}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <TH c="text-left text-gray-600" ch="Auto"/>
+              <TH c="text-gray-500" ch="Interval"/>
+              <TH c="text-gray-500" ch="Nr curse"/>
+              <TH c="text-gray-500" ch="Distanță"/>
+              <TH c="text-slate-600" ch="Ambient PAL"/>
+              <TH c="text-green-700" ch="Fresh PAL"/>
+              <TH c="text-purple-700" ch="APLS PAL"/>
+              <TH c="text-teal-700" ch="KG"/>
+              <TH c="text-gray-500" ch="Depozit"/>
+              <TH c="text-red-600" ch="Depășire"/>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {routes.map((r,i)=>{
+              const col=COLORS[i%COLORS.length];
+              const dep=r.finishMin>840?`${r.finishMin-840} min`:"NU";
+              const isLate=r.finishMin>840;
+              return(
+                <tr key={i} className="hover:bg-gray-50/70 transition-colors">
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background:col.main}}/>
+                      <span className="text-xs font-extrabold text-gray-900 tracking-widest">{r.vehicle.numar}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 ml-4">{r.vehicle.denumire}</p>
+                  </td>
+                  <TD c="text-gray-600" ch={`06:00 – ${minHHMM(r.finishMin)}`}/>
+                  <TD c="text-gray-700" ch={r.trips.length} bold/>
+                  <TD c="text-gray-700" ch={`${r.totalKm} km`} bold/>
+                  <TD c="text-slate-700" ch={r.ambientPal} bold/>
+                  <TD c="text-green-700" ch={r.freshPal} bold/>
+                  <TD c="text-purple-700" ch={r.aplsPal} bold/>
+                  <TD c="text-teal-700" ch={r.totalKg.toLocaleString("ro-RO")+" kg"} bold/>
+                  <TD c="text-gray-500" ch="PLOIEȘTI"/>
+                  <td className="px-3 py-2.5 text-center">
+                    <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${isLate?'bg-red-50 text-red-700 border-red-200':'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                      {dep}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="bg-gray-50 border-t-2 border-gray-200">
+              <td className="px-3 py-2.5 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">Total</td>
+              <td className="px-3 py-2.5 text-xs text-gray-400">—</td>
+              <TD c="text-gray-800" ch={totCurse} bold/>
+              <TD c="text-gray-800" ch={`${totKm} km`} bold/>
+              <TD c="text-slate-700" ch={totAmb} bold/>
+              <TD c="text-green-700" ch={totFresh} bold/>
+              <TD c="text-purple-700" ch={totApls} bold/>
+              <TD c="text-teal-700" ch={totKg.toLocaleString("ro-RO")+" kg"} bold/>
+              <td/>
+              <td className="px-3 py-2.5 text-center">
+                {totDep>0
+                  ?<span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">{totDep} min</span>
+                  :<span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">NU</span>}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// PANOU DEBUG VRP
+// ─────────────────────────────────────────────
+function DebugPanel({log, summary}) {
+  const [open, setOpen] = React.useState(false);
+  if (!log || log.length === 0) return null;
+  const forced     = log.filter(e => e.motiv?.startsWith('FORȚAT'));
+  const rebalanced = log.filter(e => e.motiv?.startsWith('Rebalansare'));
+  return (
+    <div className="flex-shrink-0 bg-gray-950 border-t border-gray-800">
+      <button onClick={()=>setOpen(o=>!o)}
+        className="w-full flex items-center gap-2.5 px-5 py-2 text-left hover:bg-gray-900 transition-colors">
+        <span className="text-[10px] font-mono font-bold text-gray-500 tracking-widest">🔍 DEBUG VRP</span>
+        <span className="text-[10px] text-gray-600">{log.length} decizii</span>
+        {summary && <>
+          <span className="text-[10px] text-gray-600">·</span>
+          <span className="text-[10px] text-gray-500">{summary.totalOrders} comenzi · {summary.totalTrips} curse · {summary.totalKm} km</span>
+        </>}
+        {forced.length>0 && <span className="text-[10px] font-bold text-red-500 ml-1">⚠ {forced.length} forțate</span>}
+        {rebalanced.length>0 && <span className="text-[10px] font-bold text-yellow-500 ml-1">⇄ {rebalanced.length} rebalansate</span>}
+        {summary?.overloadedTrips>0 && <span className="text-[10px] font-bold text-orange-500 ml-1">🔴 {summary.overloadedTrips} depășiri</span>}
+        <span className="text-[10px] text-gray-600 ml-auto">{open?'▲':'▼'}</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-3 max-h-52 overflow-y-auto">
+          <table className="w-full" style={{fontSize:'10px',fontFamily:'monospace'}}>
+            <thead>
+              <tr style={{color:'#6b7280',borderBottom:'1px solid #374151'}}>
+                <th className="text-left py-1 pr-4 font-bold">Magazin</th>
+                <th className="text-left py-1 pr-3 font-bold">Vehicul</th>
+                <th className="text-right py-1 pr-3 font-bold">D60</th>
+                <th className="text-right py-1 pr-3 font-bold">Rolls</th>
+                <th className="text-right py-1 pr-3 font-bold">KG</th>
+                <th className="text-left py-1 font-bold">Motiv / Decizie</th>
+              </tr>
+            </thead>
+            <tbody>
+              {log.map((e,i)=>{
+                const isHeader  = e.magazin?.startsWith('──');
+                const isForced  = e.motiv?.startsWith('FORȚAT');
+                const isRebal   = e.motiv?.startsWith('Rebalansare');
+                const rowColor  = isHeader?'#34d399':isForced?'#f87171':isRebal?'#fbbf24':'#9ca3af';
+                const bgStyle   = isHeader ? {background:'rgba(52,211,153,0.08)', borderBottom:'1px solid #065f46'} : {borderBottom:'1px solid #1f2937'};
+                return (
+                  <tr key={i} style={{color:rowColor, ...bgStyle}}>
+                    <td className="py-0.5 pr-4 font-bold" style={{maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.magazin}</td>
+                    <td className="py-0.5 pr-3 font-bold" style={{color: isHeader?'#6ee7b7':'#e5e7eb', whiteSpace:'nowrap'}}>{e.vehicul}</td>
+                    <td className="py-0.5 pr-3 text-right">{e.d60 != null ? e.d60 : '—'}</td>
+                    <td className="py-0.5 pr-3 text-right">{e.rolls != null ? e.rolls : '—'}</td>
+                    <td className="py-0.5 pr-3 text-right">{e.kg != null ? e.kg : '—'}</td>
+                    <td className="py-0.5" style={{maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:isHeader?'#a7f3d0':isForced?'#f87171':isRebal?'#fbbf24':'#6b7280'}}>{e.motiv}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// APP
+// ─────────────────────────────────────────────
+function App(){
+  const stored=React.useMemo(()=>loadFromStorage(),[]);
+  const initOrders=stored?stored.orders:FALLBACK_ORDERS;
+  const[orders,setOrders]=React.useState(initOrders);
+  const[nrSoferi,setNrSoferi]=React.useState(()=>{
+    const saved=parseInt(localStorage.getItem('rvm_active_drivers')||'0');
+    return saved>0 ? saved : 4;
+  });
+  const[routes,setRoutes]=React.useState([]);
+  const[debugLog,setDebugLog]=React.useState([]);
+  const[debugSummary,setDebugSummary]=React.useState(null);
+  const[mapOpen,setMapOpen]=React.useState(false);
+
+  // Sincronizare nrSoferi ↔ pagina Auto (rvm_active_drivers)
+  React.useEffect(()=>{
+    localStorage.setItem('rvm_active_drivers', String(nrSoferi));
+  },[nrSoferi]);
+
+  const activeOrders=orders.filter(o=>o.activ);
+
+  const handleGenerate=React.useCallback(()=>{
+    const result=generateRoutes(activeOrders,nrSoferi);
+    setRoutes(result.routes);
+    setDebugLog(result.debugLog);
+    setDebugSummary(result.summary);
+  },[activeOrders,nrSoferi]);
+
+  React.useEffect(()=>{handleGenerate();},[]);
+
+  const maxFinish=routes.length?Math.max(...routes.map(r=>r.finishMin)):0;
+  const lateCount=routes.filter(r=>r.finishMin>840).length;
+  const today=new Date().toLocaleDateString("ro-RO",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+
+  return(
+    <div className="flex flex-col h-screen bg-gray-100 overflow-hidden">
+      <Topbar/>
+      {mapOpen&&<MapFullscreen routes={routes} onClose={()=>setMapOpen(false)}/>}
+
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar/>
+
+        {/* MAIN */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* ── CONFIG BAR ── */}
+          <div className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-4 flex-shrink-0">
+            <div>
+              <p className="text-[10px] font-extrabold text-teal-600 uppercase tracking-widest">Rute generate</p>
+              <p className="text-sm font-extrabold text-gray-900 capitalize">{DOW_LBL[TODAY_DOW]} · {today}</p>
+            </div>
+
+            {stored?(
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-xl">
+                <span className="text-[10px]">📦</span>
+                <span className="text-[10px] font-bold text-teal-700">{stored.orders.length} comenzi · {stored.date}</span>
+                <button onClick={()=>{localStorage.removeItem('rvm_orders_today');setOrders(FALLBACK_ORDERS);}}
+                  className="ml-1 text-[10px] text-teal-400 hover:text-red-500 font-bold transition-colors" title="Șterge import">✕</button>
+              </div>
+            ):(
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <span className="text-[10px]">⚠️</span>
+                <a href="page-comenzi.html" className="text-[10px] font-bold text-amber-700 underline">Importă comenzi reale</a>
+              </div>
+            )}
+
+            <div className="h-6 w-px bg-gray-200 mx-1"/>
+
+            {/* Nr soferi */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Șoferi</span>
+              <button onClick={()=>setNrSoferi(n=>Math.max(1,n-1))} className="w-6 h-6 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-sm">−</button>
+              <span className="text-base font-extrabold text-indigo-600 w-5 text-center">{nrSoferi}</span>
+              <button onClick={()=>setNrSoferi(n=>Math.min(6,n+1))} className="w-6 h-6 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-sm">+</button>
+            </div>
+
+            {/* Magazine toggles */}
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {orders.map(o=>(
+                <button key={o.id} onClick={()=>setOrders(p=>p.map(x=>x.id===o.id?{...x,activ:!x.activ}:x))}
+                  className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-all
+                    ${o.activ?'bg-teal-50 text-teal-700 border-teal-300':'bg-gray-50 text-gray-300 border-gray-200 line-through'}`}>
+                  {o.magazin.split(' ').slice(0,2).join(' ')}
+                </button>
+              ))}
+            </div>
+
+            {/* Stats chips */}
+            {routes.length>0&&(
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border ${lateCount>0?'bg-red-50 text-red-700 border-red-200':'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                  ⏱ {minHHMM(maxFinish)}
+                </div>
+                <div className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-gray-100 text-gray-600 border border-gray-200">
+                  📏 {r2(routes.reduce((s,r)=>s+r.totalKm,0))} km
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={()=>setMapOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-white text-xs font-extrabold transition-all shadow-sm border border-gray-700">
+                🗺️ Hartă
+              </button>
+              <button onClick={handleGenerate}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700 transition-all shadow-sm">
+                🚀 Regenerează
+              </button>
+            </div>
+          </div>
+
+          {/* ── VEHICLE CARDS ROW ── */}
+          <div className="flex-1 overflow-hidden">
+            {routes.length===0?(
+              <div className="flex items-center justify-center h-full text-gray-400">
+                <div className="text-center">
+                  <p className="text-5xl mb-4">🗺️</p>
+                  <p className="font-bold text-gray-500 text-sm">Nicio rută generată</p>
+                  <p className="text-xs text-gray-400 mt-1">Apasă Regenerează pentru a calcula rutele</p>
+                </div>
+              </div>
+            ):(
+              <div className="flex gap-3 h-full overflow-x-auto overflow-y-hidden px-4 py-4 bg-gray-100">
+                {routes.map((r,i)=><RouteCard key={i} route={r}/>)}
+              </div>
+            )}
+          </div>
+
+          {/* ── SUMMARY TABLE ── */}
+          <SummaryTable routes={routes}/>
+
+          {/* ── DEBUG PANEL ── */}
+          <DebugPanel log={debugLog} summary={debugSummary}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

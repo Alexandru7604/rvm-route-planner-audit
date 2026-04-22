@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RVM Logistics – Magazine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { inter: ['Inter', 'sans-serif'] },
+          colors: {
+            teal: {
+              50:'#F0FDFA',100:'#CCFBF1',200:'#99F6E4',
+              400:'#2DD4BF',500:'#14B8A6',600:'#0D9488',
+              700:'#0F766E',800:'#115E59',900:'#134E4A',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    body { margin: 0; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #F3F4F6; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+    .leaflet-control-attribution { display: none !important; }
+    .leaflet-control-zoom { border: none !important; }
+    .leaflet-control-zoom a { border-radius: 8px !important; border: 1px solid #e5e7eb !important; color: #374151 !important; font-size: 16px !important; }
+  </style>
+</head>
+<body class="bg-gray-100">
+<div id="root"></div>
+
+<script type="text/babel">
+
+// ============================================================
+// MOCK DATA
+// ============================================================
+const INITIAL_STORES = [
+  { id:1,  cod:"000832", denumire:"C PLOIESTI (BILLA VEST)",   localitate:"Ploiești",           adresa:"Bdul. Libertatii nr. 4 - zona Gara de Vest",  distanta_km:8,  prioritate_livrare:3, prioritate_auto:"7 > 6 > 5 > 4 > 3 > 2 > 1", accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:2,  cod:"000083", denumire:"S PLOIEȘTI 2",              localitate:"Ploiești",           adresa:"B-dul Republicii nr.17-25",                    distanta_km:3,  prioritate_livrare:3, prioritate_auto:"1 > 2",                      accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:3,  cod:"000097", denumire:"S PLOIEȘTI 3",              localitate:"Ploiești",           adresa:"Str. 1 Decembrie 1918 nr.4",                   distanta_km:4,  prioritate_livrare:3, prioritate_auto:"7 > 6 > 5 > 4 > 3 > 2 > 1", accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:4,  cod:"000128", denumire:"S PLOIEȘTI 4",              localitate:"Ploiești",           adresa:"B-dul Republicii nr. 177, bl.10E",             distanta_km:5,  prioritate_livrare:3, prioritate_auto:"1 > 2 > 3",                  accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:5,  cod:"000161", denumire:"S PLOIEȘTI 6",              localitate:"Ploiești",           adresa:"Str. Inelului nr.3",                           distanta_km:7,  prioritate_livrare:3, prioritate_auto:"1 > 2 > 3",                  accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:6,  cod:"000374", denumire:"EXPRESS PLOIEȘTI DOJA",     localitate:"Ploiești",           adresa:"Str. Gheorghe Doja nr.101C",                   distanta_km:3,  prioritate_livrare:3, prioritate_auto:"1 > 2",                      accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:7,  cod:"000886", denumire:"IC SINAIA",                 localitate:"Sinaia",             adresa:"Blv. Carol I nr. 41",                          distanta_km:70, prioritate_livrare:1, prioritate_auto:"5 > 4 > 3",                  accepta_ep:true,  accepta_d60:true,  accepta_rolls:true,  activ_in_planificare:true  },
+  { id:8,  cod:"000202", denumire:"S BAICOI",                  localitate:"Băicoi",             adresa:"Srtr. Republicii nr.107 Baicoi",               distanta_km:26, prioritate_livrare:2, prioritate_auto:"7 > 6 > 5 > 4",              accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:9,  cod:"000230", denumire:"S VALEA CALUGAREASCA",      localitate:"Valea Călugăreasca", adresa:"Valea Calugareasca nr 217 B, jud. Prahova",    distanta_km:16, prioritate_livrare:2, prioritate_auto:"7 > 6 > 5 > 4",              accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:10, cod:"000214", denumire:"S BOLDEȘTI SCĂIENI",        localitate:"Boldești-Scăeni",    adresa:"Str.Stadionului nr.60",                        distanta_km:16, prioritate_livrare:2, prioritate_auto:"7 > 6 > 5 > 4",              accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true  },
+  { id:11, cod:"000060", denumire:"CAMPINA SUPER",             localitate:"Campina",            adresa:"Strada Republicii nr. 2-4",                    distanta_km:40, prioritate_livrare:4, prioritate_auto:"5 > 4 > 3",                  accepta_ep:true,  accepta_d60:true,  accepta_rolls:false, activ_in_planificare:true },
+];
+
+const EMPTY_FORM = {
+  cod:"", denumire:"", localitate:"", adresa:"",
+  distanta_km:"", prioritate_livrare:"3", prioritate_auto:"",
+  accepta_ep:true, accepta_d60:true, accepta_rolls:false,
+};
+
+const NAV_ITEMS = [
+  { label:"Planificare", icon:"📋", href:"page-planificare.html" },
+  { label:"Comenzi",     icon:"📦", href:"page-comenzi.html"    },
+  { label:"Rute",        icon:"🗺️", href:"page-rute.html"       },
+  { label:"Auto",        icon:"🚚", href:"page-autovehicule.html"},
+  { label:"Magazine",    icon:"🏪", href:"page-magazine.html",   active:true },
+  { label:"Utilizatori", icon:"👥", href:"page-utilizatori.html"},
+  { label:"Huburi",      icon:"🏭", href:"page-huburi.html"     },
+];
+
+const PRIORITY_LABELS = { 1:"Urgent", 2:"Mare", 3:"Mediu", 4:"Mic", 5:"Foarte mic" };
+const PRIORITY_COLORS = {
+  1:"bg-red-100 text-red-700 border-red-200",
+  2:"bg-orange-100 text-orange-700 border-orange-200",
+  3:"bg-blue-100 text-blue-700 border-blue-200",
+  4:"bg-gray-100 text-gray-600 border-gray-200",
+  5:"bg-gray-100 text-gray-500 border-gray-200",
+};
+
+// Coordonate depozit RAVMANN – Str. Mihai Bravu 250F, Ploiești
+const DEPOT_COORDS = { lat: 44.9395942, lng: 26.0575523 };
+
+// Coordonate geocodate via Nominatim OSM – rafinate manual unde e nevoie
+const INITIAL_STORE_COORDS = {
+  1:  { lat: 44.9254, lng: 25.9954 }, // Bdul Libertatii nr.4 – zona Gara de Vest, Ploiești
+  2:  { lat: 44.9412, lng: 26.0209 }, // B-dul Republicii nr.17-25 (Winmarkt), Ploiești
+  3:  { lat: 44.9262, lng: 26.0299 }, // Piața 1 Decembrie 1918, Ploiești Sud
+  4:  { lat: 44.9535, lng: 25.9970 }, // B-dul Republicii nr.177, zona Carino, Ploiești
+  5:  { lat: 44.9350, lng: 26.0650 }, // Str. Inelului nr.3, Ploiești (aproximativ – drag pt corecție)
+  6:  { lat: 44.9468, lng: 26.0150 }, // Str. Gheorghe Doja nr.101C, Ploiești
+  7:  { lat: 45.3497, lng: 25.5491 }, // Blv. Carol I nr.41, Sinaia
+  8:  { lat: 45.0337, lng: 25.8494 }, // Str. Republicii nr.107, Băicoi
+  9:  { lat: 44.9612, lng: 26.1500 }, // Valea Călugăreasca nr.217B
+  10: { lat: 45.0326, lng: 26.0271 }, // Str. Stadionului nr.60, Boldești-Scăeni
+  11: { lat: 45.1241, lng: 25.7360 }, // Strada Republicii nr.2-4, Câmpina
+};
+
+// ============================================================
+// TOPBAR
+// ============================================================
+function Topbar() {
+  return (
+    <header className="h-14 flex items-center justify-between px-6 flex-shrink-0 border-b border-blue-900" style={{background:'linear-gradient(135deg, #1E88E5 0%, #1565C0 60%, #0D47A1 100%)'}}>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-extrabold text-sm select-none shadow-lg">R</div>
+          <span className="text-white font-bold text-sm tracking-wide">RVM LOGISTICS</span>
+          <span className="text-blue-300 text-sm font-light">|</span>
+          <span className="text-blue-200 text-xs font-medium">v1 Planner</span>
+        </div>
+        <div className="h-5 w-px bg-blue-400 mx-1" />
+        <select className="text-xs px-3 py-1.5 rounded-lg border border-blue-400 focus:outline-none cursor-pointer text-white" style={{background:'rgba(255,255,255,0.15)'}}>
+          <option>HUB PLOIEȘTI</option>
+        </select>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-full bg-teal-700 flex items-center justify-center text-teal-200 text-xs font-bold">A</div>
+          <span className="text-blue-200 text-xs">admin</span>
+        </div>
+        <button className="text-xs px-3 py-1.5 rounded-lg bg-red-900/60 text-red-400 hover:bg-red-800 transition-colors font-semibold border border-red-900">Logout</button>
+      </div>
+    </header>
+  );
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function Sidebar() {
+  return (
+    <aside className="w-56 border-r border-blue-900 flex flex-col py-4 gap-1 flex-shrink-0" style={{background:'linear-gradient(180deg, #1E88E5 0%, #1565C0 50%, #0D47A1 100%)'}}>
+      {NAV_ITEMS.map(item => (
+        <a key={item.label}
+          href={item.href||'#'}
+          style={{textDecoration:'none'}}
+          className={`w-full flex items-center gap-4 py-4 px-6 text-left transition-all relative
+            ${item.active ? "text-white bg-white/20" : "text-blue-100 hover:text-white hover:bg-white/10"}`}
+        >
+          {item.active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-10 bg-teal-500 rounded-r-full" />}
+          <span className="text-2xl leading-none">{item.icon}</span>
+          <span className="text-sm font-semibold tracking-wide">{item.label}</span>
+        </a>
+      ))}
+    </aside>
+  );
+}
+
+// ============================================================
+// STAT BOX
+// ============================================================
+function StatBox({ label, value, icon }) {
+  return (
+    <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-5 py-3">
+      <span className="text-xl">{icon}</span>
+      <div>
+        <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">{label}</p>
+        <p className="text-sm font-extrabold text-blue-700 mt-0.5">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// HELPER — transformă "7,6,5,4,3,2,1" → "7 > 6 > 5 > 4 > 3 > 2 > 1"
+// ============================================================
+function formatPrioritateAuto(val) {
+  const trimmed = val.trim();
+  if (!trimmed) return "";
+  // dacă conține virgule → transformă
+  if (trimmed.includes(",")) {
+    return trimmed
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join(" > ");
+  }
+  return trimmed;
+}
+
+// ============================================================
+// FIELD (form input)
+// ============================================================
+function Field({ label, type="text", value, onChange, onBlur, placeholder, min, max, mono }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</label>
+      <input type={type} value={value} onChange={onChange} onBlur={onBlur}
+             placeholder={placeholder} min={min} max={max}
+        className={`border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-800
+                   focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent
+                   placeholder-gray-300 transition-all ${mono ? "font-mono" : ""}`} />
+    </div>
+  );
+}
+
+// ============================================================
+// CHECKBOX BADGE
+// ============================================================
+function CheckboxBadge({ label, subtitle, checked, onChange }) {
+  return (
+    <label className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all select-none
+      ${checked ? "border-teal-400 bg-teal-50" : "border-gray-200 bg-gray-50 hover:border-gray-300"}`}>
+      <input type="checkbox" checked={checked} onChange={onChange} className="w-4 h-4 accent-teal-600 cursor-pointer" />
+      <div>
+        <p className={`text-sm font-bold leading-tight ${checked ? "text-teal-700" : "text-gray-600"}`}>{label}</p>
+        {subtitle && <p className="text-[10px] text-gray-400 mt-0.5">{subtitle}</p>}
+      </div>
+    </label>
+  );
+}
+
+// ============================================================
+// MAP MINI
+// ============================================================
+function MapMini({ stores, storeCoords, onDoubleClick }) {
+  const containerRef = React.useRef(null);
+  const mapRef       = React.useRef(null);
+  const markersRef   = React.useRef({});
+
+  React.useEffect(() => {
+    if (!containerRef.current || !window.L || mapRef.current) return;
+    const L = window.L;
+    const map = L.map(containerRef.current, {
+      center: [DEPOT_COORDS.lat, DEPOT_COORDS.lng],
+      zoom: 10,
+      zoomControl: false, dragging: false,
+      scrollWheelZoom: false, doubleClickZoom: false,
+      keyboard: false, boxZoom: false,
+    });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+    L.marker([DEPOT_COORDS.lat, DEPOT_COORDS.lng], {
+      icon: L.divIcon({
+        html: `<div style="background:#EA580C;color:white;border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.4)">🏭</div>`,
+        className:'', iconSize:[28,28], iconAnchor:[14,14],
+      }), zIndexOffset: 1000,
+    }).addTo(map);
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; markersRef.current = {}; };
+  }, []);
+
+  React.useEffect(() => {
+    if (!mapRef.current || !window.L) return;
+    const L = window.L; const map = mapRef.current;
+    Object.values(markersRef.current).forEach(m => map.removeLayer(m));
+    markersRef.current = {};
+    stores.forEach((s, i) => {
+      const c = storeCoords[s.id]; if (!c) return;
+      const icon = L.divIcon({
+        html: `<div style="background:#0D9488;color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:9px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.3)">${i+1}</div>`,
+        className:'', iconSize:[20,20], iconAnchor:[10,10],
+      });
+      markersRef.current[s.id] = L.marker([c.lat, c.lng], { icon }).addTo(map);
+    });
+  }, [storeCoords, stores]);
+
+  return (
+    <div className="relative mt-5 rounded-2xl overflow-hidden border border-gray-200 cursor-pointer"
+         style={{ height:'220px' }} onDoubleClick={onDoubleClick}>
+      <div ref={containerRef} style={{ width:'100%', height:'100%' }} />
+      <div className="absolute bottom-3 right-3 pointer-events-none">
+        <div style={{ background:'rgba(0,0,0,.55)', color:'white', fontSize:'10px', fontWeight:'600',
+                      padding:'4px 10px', borderRadius:'20px', backdropFilter:'blur(4px)' }}>
+          ↕ Dublu-click pentru hartă completă
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MAP FULLSCREEN
+// ============================================================
+function MapFullscreen({ stores, storeCoords, onUpdateCoords, onCalcDistances, onClose, geocodingProgress, onGeocode, calculatingDist }) {
+  const containerRef  = React.useRef(null);
+  const mapRef        = React.useRef(null);
+  const markersRef    = React.useRef({});
+  const polylinesRef  = React.useRef({});
+  const didFitRef     = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!containerRef.current || !window.L) return;
+    const L = window.L;
+    const map = L.map(containerRef.current, {
+      center: [DEPOT_COORDS.lat, DEPOT_COORDS.lng], zoom: 10,
+    });
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
+    L.marker([DEPOT_COORDS.lat, DEPOT_COORDS.lng], {
+      icon: L.divIcon({
+        html: `<div style="background:#EA580C;color:white;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border:2.5px solid white;box-shadow:0 3px 10px rgba(0,0,0,.4)">🏭</div>`,
+        className:'', iconSize:[36,36], iconAnchor:[18,18], popupAnchor:[0,-20],
+      }), zIndexOffset: 1000,
+    }).addTo(map)
+      .bindPopup('<div style="font-family:Inter,sans-serif;font-weight:800;font-size:13px">🏭 RAVMANN Depozit</div><div style="font-size:11px;color:#666;margin-top:2px">Str. Mihai Bravu 250F, Ploiești</div>');
+    mapRef.current = map;
+    setTimeout(() => {
+      map.invalidateSize();
+      // fit bounds o singură dată după ce harta e inițializată
+      const allCoords = [[DEPOT_COORDS.lat, DEPOT_COORDS.lng]];
+      Object.values(storeCoords).forEach(c => allCoords.push([c.lat, c.lng]));
+      if (allCoords.length > 1) { map.fitBounds(allCoords, { padding:[50,50] }); }
+      didFitRef.current = true;
+    }, 300);
+    return () => { map.remove(); mapRef.current = null; didFitRef.current = false; };
+  }, []);
+
+  React.useEffect(() => {
+    if (!mapRef.current || !window.L) return;
+    const L = window.L; const map = mapRef.current;
+    Object.values(markersRef.current).forEach(m => map.removeLayer(m));
+    Object.values(polylinesRef.current).forEach(p => map.removeLayer(p));
+    markersRef.current = {}; polylinesRef.current = {};
+    stores.forEach((s, i) => {
+      const c = storeCoords[s.id]; if (!c) return;
+      polylinesRef.current[s.id] = L.polyline(
+        [[DEPOT_COORDS.lat, DEPOT_COORDS.lng], [c.lat, c.lng]],
+        { color:'#0D9488', weight:1.5, opacity:.5, dashArray:'6,10' }
+      ).addTo(map);
+      const icon = L.divIcon({
+        html: `<div style="background:#0D9488;color:white;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,.35)">${i+1}</div>`,
+        className:'', iconSize:[30,30], iconAnchor:[15,15], popupAnchor:[0,-18],
+      });
+      const marker = L.marker([c.lat, c.lng], { icon, draggable:true }).addTo(map);
+      marker.bindPopup(`<div style="font-family:Inter,sans-serif"><b style="font-size:12px">${s.denumire}</b><br><span style="font-size:11px;color:#666">${s.adresa}</span><br><b style="color:#0D9488;font-size:12px">${s.distanta_km} km</b> de la depozit</div>`);
+      marker.on('dragend', (e) => {
+        const p = e.target.getLatLng();
+        onUpdateCoords(s.id, { lat: p.lat, lng: p.lng });
+      });
+      markersRef.current[s.id] = marker;
+    });
+  }, [storeCoords, stores]);
+
+  const geocodedCount = stores.filter(s => storeCoords[s.id]).length;
+
+  return (
+    <div className="fixed inset-0 flex" style={{ zIndex:9999, background:'rgba(0,0,0,.75)' }}>
+      {/* Panel stânga */}
+      <div className="w-80 bg-white flex flex-col flex-shrink-0 overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-extrabold text-teal-600 uppercase tracking-widest">Hartă interactivă</p>
+            <h2 className="text-base font-extrabold text-gray-900">Rute magazine</h2>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-xl leading-none">×</button>
+        </div>
+
+        <div className="px-4 py-4 border-b border-gray-100 flex flex-col gap-2.5">
+          <button onClick={onGeocode} disabled={geocodingProgress.active}
+            className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all
+              ${geocodingProgress.active ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
+            {geocodingProgress.active
+              ? `⏳ Geocodare ${geocodingProgress.current}/${geocodingProgress.total}...`
+              : `📍 Geocodare automată (${geocodedCount}/${stores.length})`}
+          </button>
+          {geocodingProgress.active && (
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-teal-500 rounded-full transition-all"
+                   style={{ width:`${(geocodingProgress.current/geocodingProgress.total)*100}%` }} />
+            </div>
+          )}
+          <button onClick={onCalcDistances} disabled={calculatingDist || geocodedCount === 0}
+            className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all
+              ${calculatingDist || geocodedCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+            {calculatingDist ? '⏳ Calculez distanțe...' : '📏 Calculează distanțe rutiere'}
+          </button>
+          <div className="flex items-center gap-4 pt-1">
+            {[['#EA580C','🏭','Depozit'],['#0D9488','1','Magazin']].map(([bg,lbl,txt]) => (
+              <div key={txt} className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500">
+                <div style={{ background:bg, color:'white', borderRadius: lbl==='🏭'?'6px':'50%', width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center', fontSize:lbl==='🏭'?10:8, fontWeight:800 }}>{lbl}</div>
+                {txt}
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-gray-500">
+              <div style={{ width:20, height:2, background:'#0D9488', opacity:.6, borderTop:'1.5px dashed #0D9488' }} />
+              Rută
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+          {stores.map((s, i) => {
+            const c = storeCoords[s.id];
+            return (
+              <div key={s.id}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                onClick={() => {
+                  if (c && mapRef.current) {
+                    mapRef.current.setView([c.lat, c.lng], 15, { animate:true });
+                    markersRef.current[s.id]?.openPopup();
+                  }
+                }}>
+                <div className="w-6 h-6 rounded-full bg-teal-600 flex items-center justify-center text-white font-extrabold text-[9px] flex-shrink-0">{i+1}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-gray-800 truncate">{s.denumire}</p>
+                  <p className="text-[10px] text-gray-400">{s.localitate} · <span className="font-bold text-teal-600">{s.distanta_km} km</span></p>
+                </div>
+                <span className={`text-[9px] font-extrabold ${c ? 'text-teal-500' : 'text-gray-300'}`}>{c ? '📍✓' : '📍—'}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+          <p className="text-[10px] text-gray-400">Trage markerii pentru corecție. Distanțele se recalculează automat la drag.</p>
+        </div>
+      </div>
+
+      {/* Harta */}
+      <div ref={containerRef} style={{ flex:1, minWidth:0, height:'100vh', position:'relative' }} />
+    </div>
+  );
+}
+
+// ============================================================
+// STORE FORM
+// ============================================================
+function StoreForm({ onAdd, nextId }) {
+  const [form, setForm] = React.useState(EMPTY_FORM);
+  const [error, setError] = React.useState("");
+
+  const f = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.value }));
+  const chk = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.checked }));
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!form.denumire.trim()) { setError("Denumirea magazinului este obligatorie."); return; }
+    setError("");
+    onAdd({
+      id: nextId,
+      cod: form.cod.trim() || String(nextId).padStart(6, "0"),
+      denumire: form.denumire.trim().toUpperCase(),
+      localitate: form.localitate.trim(),
+      adresa: form.adresa.trim(),
+      distanta_km: parseFloat(form.distanta_km) || 0,
+      prioritate_livrare: parseInt(form.prioritate_livrare) || 3,
+      prioritate_auto: form.prioritate_auto.trim(),
+      accepta_ep: form.accepta_ep,
+      accepta_d60: form.accepta_d60,
+      accepta_rolls: form.accepta_rolls,
+      activ_in_planificare: true,
+    });
+    setForm(EMPTY_FORM);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+      <div className="flex items-center gap-2 mb-6">
+        <div className="w-1 h-5 bg-teal-500 rounded-full" />
+        <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">+ Adăugare magazin</h2>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        {/* Row 1 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+          <Field label="Cod magazin"    value={form.cod}       onChange={f("cod")}       placeholder="ex: 000128" />
+          <Field label="Denumire magazin *" value={form.denumire}  onChange={f("denumire")}  placeholder="ex: S PLOIEȘTI 4" />
+          <Field label="Localitate"     value={form.localitate} onChange={f("localitate")} placeholder="ex: Ploiești" />
+          <Field label="Adresă magazin" value={form.adresa}    onChange={f("adresa")}    placeholder="ex: Str. Mihai Bravu" />
+        </div>
+
+        {/* Row 2 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <Field label="Distanță HUB – magazin (km)" type="number" value={form.distanta_km}       onChange={f("distanta_km")}       placeholder="ex: 5"   min="0" />
+          <Field label="Prioritate livrare (1-5)"     type="number" value={form.prioritate_livrare} onChange={f("prioritate_livrare")} placeholder="ex: 3"   min="1" max="5" />
+          <Field label="Prioritate auto (ordine)"
+            value={form.prioritate_auto}
+            onChange={f("prioritate_auto")}
+            onBlur={() => setForm(p => ({ ...p, prioritate_auto: formatPrioritateAuto(p.prioritate_auto) }))}
+            placeholder='ex: 7,6,5,4,3 sau 7 > 6 > 5'
+            mono />
+        </div>
+
+        {/* Row 3 — Checkboxes */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+          <CheckboxBadge label="EP (450)"   subtitle="Euro Palet 450 kg"      checked={form.accepta_ep}    onChange={chk("accepta_ep")}    />
+          <CheckboxBadge label="D60 (225)"  subtitle="Palet Dusseldorf 225 kg" checked={form.accepta_d60}   onChange={chk("accepta_d60")}   />
+          <CheckboxBadge label="ROLLS (300)" subtitle="Rollcage 300 kg"        checked={form.accepta_rolls} onChange={chk("accepta_rolls")} />
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-500 font-semibold mb-3 flex items-center gap-1">⚠️ {error}</p>
+        )}
+
+        <button type="submit"
+          className="w-full py-3 rounded-xl bg-teal-600 text-white font-bold text-sm
+                     hover:bg-teal-700 active:bg-teal-800 transition-colors shadow-sm">
+          + Adaugă magazin
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ============================================================
+// STORE CARD
+// ============================================================
+function StoreCard({ store, onEdit, onDelete }) {
+  const prioColor = PRIORITY_COLORS[store.prioritate_livrare] || PRIORITY_COLORS[3];
+  const prioLabel = PRIORITY_LABELS[store.prioritate_livrare] || "Mediu";
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex flex-col overflow-hidden">
+
+      {/* Header */}
+      <div className="bg-gray-50/70 px-5 py-4 border-b border-gray-100 flex items-start justify-between">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-lg flex-shrink-0 mt-0.5">🏪</div>
+          <div>
+            <h3 className="font-extrabold text-gray-900 text-sm leading-tight tracking-wide uppercase">{store.denumire}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Cod: {store.cod}</p>
+          </div>
+        </div>
+        <button onClick={() => onEdit(store)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600
+                     hover:bg-blue-100 transition-colors text-xs font-bold flex-shrink-0 ml-2">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          Edit
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4 flex-1 flex flex-col gap-2.5">
+
+        {/* Info rows */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+          <div>
+            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">Localitate</p>
+            <p className="text-xs font-bold text-gray-700 mt-0.5">{store.localitate || "—"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">Distanță hub</p>
+            <p className="text-xs font-bold text-gray-700 mt-0.5">{store.distanta_km} km</p>
+          </div>
+          <div className="col-span-2">
+            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">Adresă</p>
+            <p className="text-xs font-bold text-gray-700 mt-0.5 truncate">{store.adresa || "—"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">Prioritate livrare</p>
+            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full border mt-0.5 ${prioColor}`}>
+              {store.prioritate_livrare} – {prioLabel}
+            </span>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400 uppercase tracking-widest font-semibold">Prioritate auto</p>
+            <p className="text-xs font-bold text-gray-700 mt-0.5 font-mono">{store.prioritate_auto || "—"}</p>
+          </div>
+        </div>
+
+        {/* Pallet badges */}
+        <div className="flex gap-1.5 flex-wrap mt-1">
+          {store.accepta_ep    && <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-teal-100 text-teal-700 border border-teal-200 tracking-wide">EP</span>}
+          {store.accepta_d60   && <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200 tracking-wide">D60</span>}
+          {store.accepta_rolls && <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 border border-purple-200 tracking-wide">ROLLS</span>}
+        </div>
+
+        {/* Active indicator */}
+        {store.activ_in_planificare && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+            <span className="text-[10px] text-teal-600 font-semibold">activ în planificare</span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer actions */}
+      <div className="px-5 pb-4 pt-1 flex gap-2 border-t border-gray-50">
+        <button
+          className="flex-1 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-600
+                     hover:bg-blue-100 transition-colors text-xs font-bold flex items-center justify-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          Raport perioadă (Excel)
+        </button>
+        <button onClick={() => onDelete(store.id)}
+          className="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-500
+                     hover:bg-red-100 transition-colors flex items-center justify-center"
+          title="Șterge magazin">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// EDIT STORE MODAL
+// ============================================================
+function EditStoreModal({ store, onSave, onCancel }) {
+  const [form, setForm] = React.useState({
+    cod:                store.cod,
+    denumire:           store.denumire,
+    localitate:         store.localitate,
+    adresa:             store.adresa,
+    distanta_km:        String(store.distanta_km),
+    prioritate_livrare: String(store.prioritate_livrare),
+    prioritate_auto:    store.prioritate_auto,
+    accepta_ep:         store.accepta_ep,
+    accepta_d60:        store.accepta_d60,
+    accepta_rolls:      store.accepta_rolls,
+  });
+
+  const f   = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.value }));
+  const chk = (key) => (e) => setForm(p => ({ ...p, [key]: e.target.checked }));
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    onSave({
+      ...store,
+      cod:                form.cod.trim(),
+      denumire:           form.denumire.trim().toUpperCase(),
+      localitate:         form.localitate.trim(),
+      adresa:             form.adresa.trim(),
+      distanta_km:        parseFloat(form.distanta_km) || 0,
+      prioritate_livrare: parseInt(form.prioritate_livrare) || 3,
+      prioritate_auto:    form.prioritate_auto.trim(),
+      accepta_ep:         form.accepta_ep,
+      accepta_d60:        form.accepta_d60,
+      accepta_rolls:      form.accepta_rolls,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+         onClick={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-100 overflow-hidden">
+
+        {/* Modal header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-lg">🏪</div>
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Editare</p>
+              <h3 className="text-base font-extrabold text-gray-900 leading-tight">Editare magazin</h3>
+            </div>
+          </div>
+          <button onClick={onCancel}
+            className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors font-bold text-lg leading-none">
+            ×
+          </button>
+        </div>
+
+        {/* Modal form */}
+        <form onSubmit={handleSave} className="p-6">
+
+          {/* Row 1 */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <Field label="Cod magazin"        value={form.cod}       onChange={f("cod")}       placeholder="000128" />
+            <Field label="Denumire magazin"   value={form.denumire}  onChange={f("denumire")}  placeholder="S PLOIEȘTI 4" />
+            <Field label="Localitate"         value={form.localitate} onChange={f("localitate")} placeholder="Ploiești" />
+            <Field label="Adresă magazin"     value={form.adresa}    onChange={f("adresa")}    placeholder="Str. Mihai Bravu" />
+          </div>
+
+          {/* Row 2 */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <Field label="Distanță HUB – magazin (km)" type="number" value={form.distanta_km}       onChange={f("distanta_km")}       placeholder="5"   min="0" />
+            <Field label="Prioritate livrare (1-5)"     type="number" value={form.prioritate_livrare} onChange={f("prioritate_livrare")} placeholder="3"   min="1" max="5" />
+          </div>
+
+          <div className="mb-4">
+            <Field label="Prioritate auto (ordine)"
+              value={form.prioritate_auto}
+              onChange={f("prioritate_auto")}
+              onBlur={() => setForm(p => ({ ...p, prioritate_auto: formatPrioritateAuto(p.prioritate_auto) }))}
+              placeholder='ex: 7,6,5,4,3 sau 7 > 6 > 5'
+              mono />
+          </div>
+
+          {/* Checkboxes */}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <CheckboxBadge label="EP (450)"    subtitle="Euro Palet 450 kg"       checked={form.accepta_ep}    onChange={chk("accepta_ep")}    />
+            <CheckboxBadge label="D60 (225)"   subtitle="Palet Dusseldorf 225 kg" checked={form.accepta_d60}   onChange={chk("accepta_d60")}   />
+            <CheckboxBadge label="ROLLS (300)" subtitle="Rollcage 300 kg"         checked={form.accepta_rolls} onChange={chk("accepta_rolls")} />
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-3">
+            <button type="button" onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+              Anulează
+            </button>
+            <button type="submit"
+              className="flex-1 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 transition-colors">
+              Salvează modificările
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CONFIRM DELETE MODAL
+// ============================================================
+function ConfirmModal({ denumire, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 border border-gray-100 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-2xl mx-auto mb-4">🗑️</div>
+        <h3 className="text-lg font-extrabold text-gray-900 mb-2">Ștergi magazinul?</h3>
+        <p className="text-sm text-gray-500 mb-6">
+          <span className="font-bold text-gray-800">{denumire}</span> va fi eliminat definitiv.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+            Anulează
+          </button>
+          <button onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition-colors">
+            Șterge
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// APP
+// ============================================================
+function App() {
+  const [stores, setStores]         = React.useState(INITIAL_STORES);
+  const [nextId, setNextId]         = React.useState(12);
+  const [editTarget, setEditTarget] = React.useState(null);
+  const [delTarget, setDelTarget]   = React.useState(null);
+  const [storeCoords, setStoreCoords]   = React.useState(INITIAL_STORE_COORDS);
+  const [mapOpen, setMapOpen]           = React.useState(false);
+  const [geocodingProgress, setGeocodingProgress] = React.useState({ active:false, current:0, total:0 });
+  const [calculatingDist, setCalculatingDist]     = React.useState(false);
+
+  // Sincronizare automată cu pagina Rute
+  React.useEffect(() => {
+    localStorage.setItem('rvm_stores', JSON.stringify(stores));
+  }, [stores]);
+
+  const addStore = (store) => { setStores(p => [...p, store]); setNextId(n => n + 1); };
+  const saveEdit = (updated) => { setStores(p => p.map(s => s.id === updated.id ? updated : s)); setEditTarget(null); };
+  const confirmDel = () => { setStores(p => p.filter(s => s.id !== delTarget.id)); setDelTarget(null); };
+
+  const updateCoords = async (storeId, coords) => {
+    setStoreCoords(prev => ({ ...prev, [storeId]: coords }));
+    try {
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${DEPOT_COORDS.lng},${DEPOT_COORDS.lat};${coords.lng},${coords.lat}?overview=false`);
+      const d = await r.json();
+      if (d.routes?.[0]) {
+        const km = Math.round(d.routes[0].distance / 1000);
+        setStores(prev => prev.map(s => s.id === storeId ? { ...s, distanta_km: km } : s));
+      }
+    } catch {}
+  };
+
+  const geocodeAll = async () => {
+    setGeocodingProgress({ active:true, current:0, total:stores.length });
+    for (let i = 0; i < stores.length; i++) {
+      const s = stores[i];
+      setGeocodingProgress({ active:true, current:i+1, total:stores.length });
+      const q = encodeURIComponent(`${s.adresa}, ${s.localitate}, Romania`);
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`);
+        const d = await r.json();
+        if (d.length > 0) setStoreCoords(prev => ({ ...prev, [s.id]: { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) } }));
+      } catch {}
+      await new Promise(r => setTimeout(r, 1100));
+    }
+    setGeocodingProgress({ active:false, current:0, total:0 });
+  };
+
+  const calcAllDistances = async () => {
+    setCalculatingDist(true);
+    const updates = {};
+    for (const s of stores) {
+      const c = storeCoords[s.id]; if (!c) continue;
+      try {
+        const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${DEPOT_COORDS.lng},${DEPOT_COORDS.lat};${c.lng},${c.lat}?overview=false`);
+        const d = await r.json();
+        if (d.routes?.[0]) updates[s.id] = Math.round(d.routes[0].distance / 1000);
+      } catch {}
+    }
+    if (Object.keys(updates).length > 0)
+      setStores(prev => prev.map(s => updates[s.id] != null ? { ...s, distanta_km: updates[s.id] } : s));
+    setCalculatingDist(false);
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100 overflow-hidden">
+      <Topbar />
+
+      {editTarget && <EditStoreModal store={editTarget} onSave={saveEdit} onCancel={() => setEditTarget(null)} />}
+      {delTarget  && <ConfirmModal denumire={delTarget.denumire} onConfirm={confirmDel} onCancel={() => setDelTarget(null)} />}
+      {mapOpen && (
+        <MapFullscreen
+          stores={stores}
+          storeCoords={storeCoords}
+          onUpdateCoords={updateCoords}
+          onCalcDistances={calcAllDistances}
+          onClose={() => setMapOpen(false)}
+          geocodingProgress={geocodingProgress}
+          onGeocode={geocodeAll}
+          calculatingDist={calculatingDist}
+        />
+      )}
+
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-100">
+
+          {/* ── Header card ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6">
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <p className="text-[10px] font-extrabold text-teal-600 uppercase tracking-widest mb-1">Date operaționale</p>
+                <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Magazine</h1>
+                <p className="text-sm text-gray-400 mt-1">Gestionează magazinele și alocarea prioritară a vehiculelor pe fiecare magazin.</p>
+              </div>
+              <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-colors shadow-sm flex-shrink-0 ml-4">
+                📥 Importă magazine CSV/XLSX
+              </button>
+            </div>
+
+            <div className="flex gap-4 flex-wrap">
+              <StatBox icon="🏪" label="Total magazine" value={stores.length} />
+              <StatBox icon="🚚" label="Expedieri directe" value="Din HUB către magazine" />
+            </div>
+            <MapMini
+              stores={stores}
+              storeCoords={storeCoords}
+              onDoubleClick={() => setMapOpen(true)}
+            />
+          </div>
+
+          {/* ── Add form ── */}
+          <StoreForm onAdd={addStore} nextId={nextId} />
+
+          {/* ── Stores grid ── */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-5 bg-teal-500 rounded-full" />
+                <h2 className="text-xs font-extrabold text-gray-600 uppercase tracking-widest">Magazine existente</h2>
+              </div>
+              <span className="text-xs text-gray-400 font-medium">{stores.length} magazine</span>
+            </div>
+
+            {stores.length === 0 ? (
+              <div className="bg-white rounded-2xl border-2 border-dashed border-gray-200 p-20 text-center">
+                <p className="text-5xl mb-4">🏪</p>
+                <p className="font-extrabold text-gray-700 text-lg">Nu există magazine</p>
+                <p className="text-sm text-gray-400 mt-2">Adaugă manual sau importă CSV/XLSX</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {stores.map(s => (
+                  <StoreCard
+                    key={s.id}
+                    store={s}
+                    onEdit={setEditTarget}
+                    onDelete={(id) => setDelTarget(stores.find(x => x.id === id))}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
